@@ -1,0 +1,22 @@
+{
+  "name": "xeno",
+  "module": "./src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "bundle": "bun build ./src/index.ts --outfile ./bin/xeno.js --target bun",
+    "check": "bunx tsc --noEmit",
+    "dev": "bun run --watch --no-clear-screen src/index.ts console --home ./dev-home",
+    "format": "bunx prettier --write ."
+  },
+  "bin": {
+    "xeno": "./bin/xeno.js"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "prettier": "^3.8.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}
