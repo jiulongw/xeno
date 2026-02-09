@@ -2,14 +2,14 @@
 
 Bun CLI app with two commands:
 
-- `serve`: start a long-running placeholder service with graceful shutdown on `Ctrl-C`/`SIGTERM`
-- `console`: start an interactive terminal chat UI backed by Claude Agent SDK streaming
+- `serve`: start the gateway service (enables configured chat services such as Telegram) and host a Unix socket JSON-RPC endpoint
+- `console`: attach an interactive terminal chat UI to a running gateway via Unix socket JSON-RPC
 
-Both commands require `--home <string>`.
+`--home <string>` is optional. If omitted, xeno uses `default_home` from `~/.config/xeno/config.json`.
 
 ## Home directory bootstrap
 
-Before running either command, xeno creates `--home` (if needed) and initializes missing files:
+Before running any command, xeno creates the resolved home directory (if needed) and initializes missing files:
 
 - `CLAUDE.md`
 - `BOOTSTRAP.md`
@@ -47,6 +47,31 @@ bun run src/index.ts serve --home /tmp/xeno
 bun run src/index.ts console --home /tmp/xeno
 ```
 
+`console` requires a running `serve` process for the same `--home`.
+Socket path: `<home>/.xeno/gateway.sock`.
+
+## Telegram setup
+
+Set `TELEGRAM_BOT_TOKEN` to enable Telegram service under `serve`.
+
+You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
+
+- `serve` enables Telegram automatically when a token is available
+- `TELEGRAM_BOT_TOKEN` overrides `telegram_bot_token` from config
+
+## Config file
+
+Path: `~/.config/xeno/config.json`
+
+Example:
+
+```json
+{
+  "default_home": "/tmp/xeno",
+  "telegram_bot_token": "123456:abcdef"
+}
+```
+
 ## Claude executable override
 
 Set `PATH_TO_CLAUDE_CODE_EXECUTABLE` to override the Claude CLI path used by the agent.
@@ -74,6 +99,7 @@ Claude authentication failures can sometimes appear in output (for example, `Not
     - `bun install --frozen-lockfile`
     - `bunx prettier --check .`
     - `bun run check`
+    - `bun run test`
 - Release workflow: `.github/workflows/release.yml`
   - Triggers on pushed tags matching `v*`
   - Runs `bun run bundle`

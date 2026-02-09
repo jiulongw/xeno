@@ -2,14 +2,16 @@ export type CommandName = "serve" | "console";
 
 export type ParsedArgs = {
   command: CommandName;
-  home: string;
+  home?: string;
 };
 
 export function printUsage(): void {
-  process.stdout.write(`Usage: xeno <command> --home <path>\n
+  process.stdout.write(`Usage: xeno <command> [--home <path>]\n
 Commands:
   serve      Start long-running service
-  console    Run interactive debug console\n`);
+  console    Run interactive debug console
+
+If --home is omitted, xeno uses default_home from ~/.config/xeno/config.json.\n`);
 }
 
 function isCommand(value: string): value is CommandName {
@@ -39,10 +41,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
 
     throw new Error(`Unknown argument: ${arg}`);
-  }
-
-  if (!home) {
-    throw new Error("Missing required --home parameter.");
   }
 
   return { command: commandRaw, home };

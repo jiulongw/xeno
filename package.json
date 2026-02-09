@@ -7,7 +7,10 @@
     "bundle": "bun build ./src/index.ts --outdir ./bin --target bun --entry-naming xeno.js",
     "check": "bunx tsc --noEmit",
     "dev": "bun run --watch --no-clear-screen src/index.ts console --home ./dev-home",
-    "format": "bunx prettier --write ."
+    "format": "bunx prettier --write .",
+    "serve": "bun run src/index.ts serve",
+    "serve-dev": "bun run src/index.ts serve --home ./dev-home",
+    "test": "bun test"
   },
   "bin": {
     "xeno": "./bin/xeno.js"
@@ -22,6 +25,7 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
     "@opentui/core": "^0.1.77",
+    "grammy": "^1.40.0",
     "pino": "^10.3.0"
   }
 }
