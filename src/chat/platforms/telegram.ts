@@ -156,12 +156,9 @@ export class TelegramPlatform implements ChatService {
     this.schedulePartialFlush(this.minEditIntervalMs - elapsed);
   }
 
-  async sendStats(stats: string): Promise<void> {
-    if (!this.bot || this.activeChatId === null) {
-      return;
-    }
-
-    await this.bot.api.sendMessage(this.activeChatId, `[stats] ${stats}`);
+  async sendStats(_stats: string): Promise<void> {
+    // Intentionally no-op for Telegram to avoid noisy debug metadata in chats.
+    return;
   }
 
   private async handleIncomingText(ctx: Context, text: string): Promise<void> {

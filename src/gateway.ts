@@ -1,4 +1,4 @@
-import { Agent } from "./agent";
+import type { AgentRuntime } from "./agent";
 import { formatMessage } from "./chat/formatter";
 import { ChatServiceRegistry } from "./chat/registry";
 import { extractText, formatStats } from "./chat/stream";
@@ -7,13 +7,13 @@ import { logger } from "./logger";
 
 export interface GatewayConfig {
   home: string;
-  agent: Agent;
+  agent: AgentRuntime;
   services: ChatService[];
 }
 
 export class Gateway {
   private readonly registry = new ChatServiceRegistry();
-  private readonly agent: Agent;
+  private readonly agent: AgentRuntime;
 
   private activeQuery = false;
   private shuttingDown = false;
@@ -28,8 +28,8 @@ export class Gateway {
 
   async start(): Promise<void> {
     for (const service of this.registry.list()) {
-      service.onUserMessage((message) => {
-        void this.handleUserMessage(service, message);
+      service.onUserMessage(async (message) => {
+        await this.handleUserMessage(service, message);
       });
 
       service.onAbortRequest?.(() => {

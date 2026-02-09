@@ -5,30 +5,40 @@ import { TelegramPlatform } from "./chat/platforms/telegram";
 import type { ChatService } from "./chat/service";
 import { parseArgs } from "./cli";
 import { runConsoleClient } from "./console-client";
+import {
+  getConfigPath,
+  loadUserConfig,
+  resolveHome,
+  resolveTelegramBotToken,
+  type AppConfig,
+} from "./config";
 import { Gateway } from "./gateway";
 import { createHome } from "./home";
 import { GatewayRpcServer } from "./ipc/gateway-rpc";
 import { logger } from "./logger";
 
-function buildServeServices(home: string): ChatService[] {
+function buildServeServices(home: string, config: AppConfig): ChatService[] {
   const services: ChatService[] = [];
-  const telegramToken = process.env.TELEGRAM_BOT_TOKEN;
+  const telegramToken = resolveTelegramBotToken(config);
 
   if (telegramToken) {
     services.push(new TelegramPlatform({ home, token: telegramToken }));
   } else {
-    logger.info("TELEGRAM_BOT_TOKEN is not set; Telegram platform disabled");
+    logger.info(
+      { configPath: getConfigPath() },
+      "Telegram token not set; configure TELEGRAM_BOT_TOKEN or telegram_bot_token",
+    );
   }
 
   return services;
 }
 
-async function runServe(home: string): Promise<void> {
+async function runServe(home: string, config: AppConfig): Promise<void> {
   const agent = new Agent(home);
   const gateway = new Gateway({
     home,
     agent,
-    services: buildServeServices(home),
+    services: buildServeServices(home, config),
   });
   const rpcServer = new GatewayRpcServer({
     home,
@@ -84,11 +94,13 @@ async function runConsole(home: string): Promise<void> {
 
 async function main(): Promise<void> {
   try {
-    const { command, home } = parseArgs(process.argv.slice(2));
+    const { command, home: homeFromArgs } = parseArgs(process.argv.slice(2));
+    const config = await loadUserConfig();
+    const home = resolveHome(homeFromArgs, config);
     await createHome(home);
 
     if (command === "serve") {
-      await runServe(home);
+      await runServe(home, config);
       return;
     }
 

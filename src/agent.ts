@@ -25,7 +25,14 @@ export interface ConversationTurn {
   content: string;
 }
 
-export class Agent {
+export interface AgentRuntime {
+  getSessionId(): string | null;
+  getConversationHistory(): Promise<ConversationTurn[]>;
+  query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage>;
+  abort(): void;
+}
+
+export class Agent implements AgentRuntime {
   readonly dir: string;
   readonly logger: pino.Logger;
   readonly pathToClaudeCodeExecutable: string | undefined;
