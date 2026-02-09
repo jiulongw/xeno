@@ -25,6 +25,7 @@ export interface ConversationTurn {
 export class Agent {
   readonly dir: string;
   readonly logger: pino.Logger;
+  readonly pathToClaudeCodeExecutable: string;
 
   private abortController: AbortController | null = null;
   private sessionId: string | null;
@@ -32,6 +33,11 @@ export class Agent {
   constructor(dir: string) {
     this.dir = dir;
     this.logger = logger.child({ home: dir });
+    const pathToClaudeCodeExecutable = Bun.which("claude");
+    if (!pathToClaudeCodeExecutable) {
+      throw new Error('Could not find "claude" executable in PATH');
+    }
+    this.pathToClaudeCodeExecutable = pathToClaudeCodeExecutable;
     this.sessionId = this.loadSessionId();
   }
 
@@ -99,6 +105,7 @@ export class Agent {
       settingSources: ["project"],
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      pathToClaudeCodeExecutable: this.pathToClaudeCodeExecutable,
       tools: { type: "preset", preset: "claude_code" },
       hooks: {
         PreCompact: [preCompactHook],
