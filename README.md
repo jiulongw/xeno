@@ -54,3 +54,18 @@ Structured logs use `pino`. Set `LOG_LEVEL` to control verbosity:
 ```bash
 LOG_LEVEL=debug bun run src/index.ts serve --home /tmp/xeno
 ```
+
+## GitHub Actions
+
+- CI workflow: `.github/workflows/ci.yml`
+  - Triggers on `pull_request` and `push` to `main`
+  - Runs:
+    - `bun install --frozen-lockfile`
+    - `bunx prettier --check .`
+    - `bun run check`
+- Release workflow: `.github/workflows/release.yml`
+  - Triggers on pushed tags matching `v*`
+  - Runs `bun run bundle`
+  - Packages build output as `dist/xeno-<tag>.tar.gz`
+  - Generates checksum file `dist/xeno-<tag>.tar.gz.sha256`
+  - Uploads both files to the GitHub Release for the tag

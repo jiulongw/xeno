@@ -39,3 +39,12 @@
 
 - Build command: `bun run bundle`
 - Binary output: `bin/xeno.js` (via `bun build --outdir ./bin --entry-naming xeno.js`)
+
+## GitHub workflows
+
+- CI workflow: `.github/workflows/ci.yml`
+  - Trigger: `pull_request` and `push` to `main`
+  - Steps: install (`bun install --frozen-lockfile`), format check (`bunx prettier --check .`), type check (`bun run check`)
+- Release workflow: `.github/workflows/release.yml`
+  - Trigger: pushed tags matching `v*`
+  - Steps: build (`bun run bundle`), package `bin/` into `dist/xeno-<tag>.tar.gz`, generate `dist/xeno-<tag>.tar.gz.sha256`, upload both assets to the tag's GitHub Release
