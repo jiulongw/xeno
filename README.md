@@ -60,6 +60,12 @@ Structured logs use `pino`. Set `LOG_LEVEL` to control verbosity:
 LOG_LEVEL=debug bun run src/index.ts serve --home /tmp/xeno
 ```
 
+## Known edge case
+
+In headless SSH sessions, first-time authentication can fail if the macOS keychain is locked. If needed, run `security unlock-keychain` and retry.
+
+Claude authentication failures can sometimes appear in output (for example, `Not logged in · Please run /login`) while the SDK result stats still report `result=success`. This is an upstream edge case, so xeno currently displays both as-is across modes.
+
 ## GitHub Actions
 
 - CI workflow: `.github/workflows/ci.yml`
