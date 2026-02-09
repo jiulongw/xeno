@@ -32,7 +32,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          tar -czf "dist/xeno-${TAG}.tar.gz" bin
+          tar -czf "dist/xeno-${TAG}.tar.gz" bin README.md
 
       - name: Create release and upload packaged artifacts
         uses: softprops/action-gh-release@v2
