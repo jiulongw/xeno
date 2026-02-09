@@ -5,16 +5,19 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   SDKMessage,
   SDKSystemMessage,
+  HookInput,
   HookCallbackMatcher,
   Options,
   McpServerConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import pino from "pino";
+import type { PlatformContext } from "./chat/service";
 import { logger } from "./logger";
 
 export interface QueryOptions {
   includePartialMessages?: boolean;
   mcpServers?: Record<string, McpServerConfig>;
+  platformContext?: PlatformContext;
 }
 
 export interface ConversationTurn {
@@ -88,12 +91,15 @@ export class Agent {
   async *query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage> {
     this.abortController = new AbortController();
     const sessionId = this.sessionId;
+    const { includePartialMessages, mcpServers, platformContext } = options || {};
 
     const preCompactHook: HookCallbackMatcher = {
-      hooks: [this.preCompactHook],
+      hooks: [
+        async (input: HookInput) => {
+          return this.preCompactHook(input, platformContext);
+        },
+      ],
     };
-
-    const { includePartialMessages, mcpServers } = options || {};
 
     const queryOptions: Options = {
       abortController: this.abortController,
@@ -145,12 +151,39 @@ export class Agent {
     }
   }
 
-  private async preCompactHook() {
-    this.logger.info("PreCompact hook triggered, injecting memory flush instruction");
+  private async preCompactHook(_input: HookInput, platformContext?: PlatformContext) {
+    this.logger.info({ platformContext }, "PreCompact hook triggered");
+
+    const platformNote = this.getPlatformSystemMessage(platformContext);
     return {
-      systemMessage:
+      systemMessage: [
         "The session is about to be compacted (summarized). Now it is a good time to reflect and update your long-term memory.",
+        platformNote,
+      ]
+        .filter((part) => part.length > 0)
+        .join("\n\n"),
     };
+  }
+
+  private getPlatformSystemMessage(platformContext?: PlatformContext): string {
+    if (!platformContext) {
+      return "";
+    }
+
+    const serializedContext = JSON.stringify(platformContext);
+    const formattingHint = this.getPlatformFormattingHint(platformContext.type);
+
+    return [`Platform context: ${serializedContext}.`, formattingHint]
+      .filter((part) => part.length > 0)
+      .join("\n");
+  }
+
+  private getPlatformFormattingHint(type: PlatformContext["type"]): string {
+    if (type === "telegram" || type === "discord" || type === "slack") {
+      return "Formatting hint: Avoid markdown tables. Prefer concise bullet lists.";
+    }
+
+    return "";
   }
 
   private get sessionFilePath(): string {

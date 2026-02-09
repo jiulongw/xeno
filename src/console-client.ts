@@ -10,14 +10,24 @@ import {
   createCliRenderer,
   type KeyEvent,
 } from "@opentui/core";
-import type { SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
 
-import { Agent } from "./agent";
+import { GatewayRpcClient } from "./ipc/gateway-rpc";
 import { logger } from "./logger";
 
-export async function runConsole(home: string): Promise<void> {
-  logger.info({ home }, "Console mode");
-  const agent = new Agent(home);
+export async function runConsoleClient(home: string): Promise<void> {
+  const rpcClient = new GatewayRpcClient(home);
+  const platformLogger = logger.child({ service: "console-client", home });
+
+  try {
+    await rpcClient.connect();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to connect to running gateway service for home ${home}. Start serve first. (${message})`,
+    );
+  }
+
+  const snapshot = await rpcClient.initialize();
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -96,100 +106,46 @@ export async function runConsole(home: string): Promise<void> {
       conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
       renderer.requestRender();
       return text;
-    } else {
-      const isStats = content.trimStart().startsWith("[stats]");
-      const text = new TextRenderable(renderer, {
-        id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        content,
-        fg: isStats ? "#9aa5ce" : "#eef1ff",
-        marginBottom: 1,
-        attributes: isStats ? TextAttributes.DIM : TextAttributes.NONE,
-      });
-      conversationList.add(text);
-      conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
-      renderer.requestRender();
-      return text;
-    }
-  };
-
-  const asRecord = (value: unknown): Record<string, unknown> | null => {
-    return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
-  };
-
-  const extractAssistantText = (message: SDKMessage): string => {
-    if (message.type === "assistant") {
-      const maybeContent = (message.message as { content?: unknown }).content;
-      if (!Array.isArray(maybeContent)) {
-        return "";
-      }
-
-      let text = "";
-      for (const block of maybeContent) {
-        const record = asRecord(block);
-        if (!record || record.type !== "text") {
-          continue;
-        }
-        const blockText = record.text;
-        if (typeof blockText === "string") {
-          text += blockText;
-        }
-      }
-      return text;
     }
 
-    if (message.type !== "stream_event") {
-      return "";
-    }
-
-    const event = asRecord(message.event);
-    if (!event) {
-      return "";
-    }
-
-    if (event.type === "content_block_start") {
-      const block = asRecord(event.content_block);
-      if (block?.type === "text" && typeof block.text === "string") {
-        return block.text;
-      }
-      return "";
-    }
-
-    if (event.type === "content_block_delta") {
-      const delta = asRecord(event.delta);
-      if (delta?.type === "text_delta" && typeof delta.text === "string") {
-        return delta.text;
-      }
-      return "";
-    }
-
-    return "";
-  };
-
-  const formatResultStats = (result: SDKResultMessage): string => {
-    const durationSec = (result.duration_ms / 1000).toFixed(2);
-    const apiDurationSec = (result.duration_api_ms / 1000).toFixed(2);
-    const cost = result.total_cost_usd.toFixed(6);
-
-    return [
-      `result=${result.subtype}`,
-      `turns=${result.num_turns}`,
-      `cost=$${cost}`,
-      `duration=${durationSec}s`,
-      `api=${apiDurationSec}s`,
-      `stop=${result.stop_reason ?? "none"}`,
-    ].join(" | ");
+    const isStats = content.trimStart().startsWith("[stats]");
+    const text = new TextRenderable(renderer, {
+      id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      content,
+      fg: isStats ? "#9aa5ce" : "#eef1ff",
+      marginBottom: 1,
+      attributes: isStats ? TextAttributes.DIM : TextAttributes.NONE,
+    });
+    conversationList.add(text);
+    conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
+    renderer.requestRender();
+    return text;
   };
 
   let activeQuery = false;
   let abortingQuery = false;
+  let shuttingDown = false;
+
+  const shutdown = (signal: NodeJS.Signals) => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+    void rpcClient.abort().catch(() => undefined);
+    rpcClient.close();
+    platformLogger.info({ signal }, "Console client shutdown");
+    if (!renderer.isDestroyed) {
+      renderer.destroy();
+    }
+  };
 
   const handleInterrupt = (source: "SIGINT" | "SIGTERM" | "keypress") => {
     if (activeQuery) {
       if (!abortingQuery) {
         abortingQuery = true;
         addMessage("agent", "Aborting current request...");
-        logger.info({ source }, "Aborting active query");
-        agent.abort();
+        platformLogger.info({ source }, "Aborting active query");
+        void rpcClient.abort();
       } else {
         shutdown(source === "SIGTERM" ? "SIGTERM" : "SIGINT");
       }
@@ -199,21 +155,18 @@ export async function runConsole(home: string): Promise<void> {
     shutdown(source === "SIGTERM" ? "SIGTERM" : "SIGINT");
   };
 
-  let shuttingDown = false;
-  const shutdown = (signal: NodeJS.Signals) => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-    agent.abort();
-    logger.info({ signal }, "Console shutdown");
-    renderer.destroy();
-  };
-
   const onSigInt = () => handleInterrupt("SIGINT");
   const onSigTerm = () => handleInterrupt("SIGTERM");
   process.on("SIGINT", onSigInt);
   process.on("SIGTERM", onSigTerm);
+
+  rpcClient.setDisconnectedHandler(() => {
+    if (shuttingDown) {
+      return;
+    }
+    addMessage("agent", "Disconnected from gateway service.");
+    shutdown("SIGTERM");
+  });
 
   try {
     input.on(InputRenderableEvents.ENTER, async () => {
@@ -227,59 +180,44 @@ export async function runConsole(home: string): Promise<void> {
       }
 
       addMessage("user", userInput);
-      logger.info({ input: userInput }, "query");
       input.value = "";
 
       const agentMessage = addMessage("agent", "");
-      let streamed = "";
-      let fallbackFinal = "";
+      let sawResponse = false;
       activeQuery = true;
       abortingQuery = false;
 
       try {
-        for await (const message of agent.query(userInput, { includePartialMessages: true })) {
-          if (shuttingDown) {
-            break;
-          }
-
-          if (message.type === "stream_event") {
-            const delta = extractAssistantText(message);
-            if (delta) {
-              streamed += delta;
-              agentMessage.content = streamed;
+        await rpcClient.query(
+          userInput,
+          {
+            type: "console",
+            metadata: { home },
+          },
+          {
+            onStream: (content) => {
+              sawResponse = true;
+              agentMessage.content = content;
               conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
               renderer.requestRender();
-            }
-            continue;
-          }
-
-          if (message.type === "assistant") {
-            fallbackFinal = extractAssistantText(message);
-            if (!streamed && fallbackFinal) {
-              agentMessage.content = fallbackFinal;
-              conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
-              renderer.requestRender();
-            }
-            continue;
-          }
-
-          if (message.type === "result") {
-            addMessage("agent", `[stats] ${formatResultStats(message)}`);
-          }
-        }
+            },
+            onStats: (stats) => {
+              addMessage("agent", `[stats] ${stats}`);
+            },
+          },
+        );
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         const isAbortError =
           message.toLowerCase().includes("aborted") || message.toLowerCase().includes("abort");
         if (!isAbortError) {
           addMessage("agent", `Error: ${message}`);
-          logger.error({ error }, "Query failed");
+          platformLogger.error({ error }, "Console query failed");
         }
       } finally {
         activeQuery = false;
         abortingQuery = false;
-        const content = streamed || fallbackFinal;
-        if (!content) {
+        if (!sawResponse) {
           agentMessage.content = "[No response]";
           renderer.requestRender();
         }
@@ -299,13 +237,11 @@ export async function runConsole(home: string): Promise<void> {
     input.focus();
     renderer.start();
 
-    const sessionId = agent.getSessionId();
-    if (sessionId) {
-      addMessage("agent", `Resuming session: ${sessionId}`);
-      const history = await agent.getConversationHistory();
-      if (history.length > 0) {
+    if (snapshot.sessionId) {
+      addMessage("agent", `Resuming session: ${snapshot.sessionId}`);
+      if (snapshot.history.length > 0) {
         addMessage("agent", "[stats] Loaded conversation history.");
-        for (const turn of history) {
+        for (const turn of snapshot.history) {
           addMessage(turn.role === "assistant" ? "agent" : "user", turn.content);
         }
       }
@@ -317,10 +253,9 @@ export async function runConsole(home: string): Promise<void> {
   } finally {
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
+    rpcClient.close();
     if (!renderer.isDestroyed) {
       renderer.destroy();
     }
   }
-
-  logger.info("Console stopped");
 }

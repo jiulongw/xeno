@@ -10,9 +10,10 @@
 
 - Entry point: `src/index.ts`
 - Commands:
-  - `serve`: long-running placeholder service, graceful shutdown on `Ctrl-C`/`SIGTERM`
-  - `console`: interactive OpenTUI chat UI backed by Claude Agent SDK streaming, graceful shutdown on `Ctrl-C`/`SIGTERM` and abort support
+  - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, graceful shutdown on `Ctrl-C`/`SIGTERM`
+  - `console`: interactive OpenTUI chat UI that attaches to a running `serve` process over JSON-RPC, graceful shutdown on `Ctrl-C`/`SIGTERM` and abort support
 - Both commands require `--home <string>`.
+- `serve` enables Telegram chat service automatically when `TELEGRAM_BOT_TOKEN` is set.
 
 ## Home initialization
 

@@ -2,14 +2,14 @@
 
 Bun CLI app with two commands:
 
-- `serve`: start a long-running placeholder service with graceful shutdown on `Ctrl-C`/`SIGTERM`
-- `console`: start an interactive terminal chat UI backed by Claude Agent SDK streaming
+- `serve`: start the gateway service (enables configured chat services such as Telegram) and host a Unix socket JSON-RPC endpoint
+- `console`: attach an interactive terminal chat UI to a running gateway via Unix socket JSON-RPC
 
-Both commands require `--home <string>`.
+All commands require `--home <string>`.
 
 ## Home directory bootstrap
 
-Before running either command, xeno creates `--home` (if needed) and initializes missing files:
+Before running any command, xeno creates `--home` (if needed) and initializes missing files:
 
 - `CLAUDE.md`
 - `BOOTSTRAP.md`
@@ -46,6 +46,15 @@ Build output:
 bun run src/index.ts serve --home /tmp/xeno
 bun run src/index.ts console --home /tmp/xeno
 ```
+
+`console` requires a running `serve` process for the same `--home`.
+Socket path: `<home>/.xeno/gateway.sock`.
+
+## Telegram setup
+
+Set `TELEGRAM_BOT_TOKEN` to enable Telegram service under `serve`.
+
+- `serve` enables Telegram automatically when `TELEGRAM_BOT_TOKEN` is set
 
 ## Claude executable override
 
