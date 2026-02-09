@@ -1,0 +1,70 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+jobs:
+  open-tap-pr:
+    if: github.event.release.prerelease == false
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: jiulongw/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Download release artifact and compute SHA256
+        id: release_artifact
+        env:
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+
+          asset_name="xeno-${TAG}.tar.gz"
+          asset_url="https://github.com/${REPOSITORY}/releases/download/${TAG}/${asset_name}"
+
+          curl -fL "${asset_url}" -o "${asset_name}"
+          sha256="$(sha256sum "${asset_name}" | awk '{print $1}')"
+
+          echo "asset_url=${asset_url}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
+      - name: Update formula
+        env:
+          ASSET_URL: ${{ steps.release_artifact.outputs.asset_url }}
+          SHA256: ${{ steps.release_artifact.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+
+          formula_path="homebrew-tap/Formula/xeno.rb"
+
+          sed -i "s|^  url \".*\"$|  url \"${ASSET_URL}\"|" "${formula_path}"
+          sed -i "s|^  sha256 \".*\"$|  sha256 \"${SHA256}\"|" "${formula_path}"
+
+          echo "Updated formula:"
+          rg -n "^(  url|  sha256)" "${formula_path}"
+
+      - name: Create pull request in homebrew-tap
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+          base: main
+          branch: automation/xeno-${{ github.event.release.tag_name }}
+          delete-branch: true
+          commit-message: "xeno: update to ${{ github.event.release.tag_name }}"
+          title: "xeno: update to ${{ github.event.release.tag_name }}"
+          body: |
+            This PR updates the `xeno` formula for `${{ github.event.release.tag_name }}`.
+
+            - URL: `${{ steps.release_artifact.outputs.asset_url }}`
+            - SHA256: `${{ steps.release_artifact.outputs.sha256 }}`
