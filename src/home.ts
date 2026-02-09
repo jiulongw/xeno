@@ -10,7 +10,7 @@ import memoryTemplate from "../template/MEMORY.md" with { type: "text" };
 import soulTemplate from "../template/SOUL.md" with { type: "text" };
 import toolsTemplate from "../template/TOOLS.md" with { type: "text" };
 import userTemplate from "../template/USER.md" with { type: "text" };
-import claudeSettingsTemplate from "../template/.claude/settings.local.json";
+import claudeSettingsTemplate from "../template/claude.settings.json";
 
 type TemplateFile = {
   relativePath: string;

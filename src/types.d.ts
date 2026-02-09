@@ -3,7 +3,7 @@ declare module "*.md" {
   export default content;
 }
 
-declare module "../template/.claude/settings.local.json" {
+declare module "../template/claude.settings.json" {
   const content: string;
   export default content;
 }
