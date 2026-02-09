@@ -31,6 +31,9 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: |
+          cp node_modules/@anthropic-ai/claude-agent-sdk/cli.js bin/
+          cp node_modules/@anthropic-ai/claude-agent-sdk/*.wasm bin/
+          cp -r node_modules/@anthropic-ai/claude-agent-sdk/vendor bin/
           mkdir -p dist
           tar -czf "dist/xeno-${TAG}.tar.gz" bin README.md
 

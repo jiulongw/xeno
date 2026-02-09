@@ -35,6 +35,12 @@
 - Logger: `src/logger.ts` (`pino`)
 - Log level: `LOG_LEVEL` env var (default `info`)
 
+## Claude executable path
+
+- Optional env var: `PATH_TO_CLAUDE_CODE_EXECUTABLE`
+- When set, `src/agent.ts` passes this value to `pathToClaudeCodeExecutable`.
+- No `bun.which("claude")` lookup is used.
+
 ## Build output
 
 - Build command: `bun run bundle`
@@ -47,4 +53,4 @@
   - Steps: install (`bun install --frozen-lockfile`), format check (`bunx prettier --check .`), type check (`bun run check`)
 - Release workflow: `.github/workflows/release.yml`
   - Trigger: pushed tags matching `v*`
-  - Steps: build (`bun run bundle`), package `bin/` into `dist/xeno-<tag>.tar.gz`, generate `dist/xeno-<tag>.tar.gz.sha256`, upload both assets to the tag's GitHub Release
+  - Steps: build (`bun run bundle`), copy Claude Agent SDK runtime files into `bin/` (`cli.js`, `*.wasm`, `vendor/`), package `bin/` into `dist/xeno-<tag>.tar.gz`, generate `dist/xeno-<tag>.tar.gz.sha256`, upload both assets to the tag's GitHub Release

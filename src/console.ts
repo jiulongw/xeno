@@ -180,6 +180,18 @@ export async function runConsole(home: string): Promise<void> {
     ].join(" | ");
   };
 
+  const isLoginRequiredError = (message: string): boolean => {
+    const lower = message.toLowerCase();
+    return (
+      lower.includes("not logged in") ||
+      lower.includes("please log in") ||
+      lower.includes("please login") ||
+      lower.includes("authentication") ||
+      lower.includes("unauthorized") ||
+      lower.includes("401")
+    );
+  };
+
   let activeQuery = false;
   let abortingQuery = false;
 
@@ -269,11 +281,18 @@ export async function runConsole(home: string): Promise<void> {
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        const needsLogin = isLoginRequiredError(message);
         const isAbortError =
           message.toLowerCase().includes("aborted") || message.toLowerCase().includes("abort");
         if (!isAbortError) {
           addMessage("agent", `Error: ${message}`);
           logger.error({ error }, "Query failed");
+          if (needsLogin) {
+            addMessage(
+              "agent",
+              'Authentication may be blocked by a locked macOS keychain (common in headless SSH sessions). Run "security unlock-keychain" in your terminal and retry.',
+            );
+          }
         }
       } finally {
         activeQuery = false;
