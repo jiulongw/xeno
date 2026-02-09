@@ -11,10 +11,31 @@
 - Entry point: `src/index.ts`
 - Commands:
   - `serve`: long-running placeholder service, graceful shutdown on `Ctrl-C`/`SIGTERM`
-  - `console`: interactive echo loop, graceful shutdown on `Ctrl-C`/`SIGTERM`
+  - `console`: interactive OpenTUI chat UI backed by Claude Agent SDK streaming, graceful shutdown on `Ctrl-C`/`SIGTERM` and abort support
 - Both commands require `--home <string>`.
+
+## Home initialization
+
+- On startup, both commands call `createHome(home)` from `src/home.ts`.
+- Missing files are scaffolded from `template/`:
+  - `CLAUDE.md`
+  - `BOOTSTRAP.md`
+  - `HEARTBEAT.md`
+  - `IDENTITY.md`
+  - `MEMORY.md`
+  - `SOUL.md`
+  - `TOOLS.md`
+  - `USER.md`
+  - `.claude/settings.local.json`
+- `memory/` is created if missing.
+- Existing files are never overwritten.
+
+## Logging
+
+- Logger: `src/logger.ts` (`pino`)
+- Log level: `LOG_LEVEL` env var (default `info`)
 
 ## Build output
 
 - Build command: `bun run bundle`
-- Binary output: `bin/xeno.js` (configured in `package.json`)
+- Binary output: `bin/xeno.js` (via `bun build --outdir ./bin --entry-naming xeno.js`)

@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "bundle": "bun build ./src/index.ts --outfile ./bin/xeno.js --target bun",
+    "bundle": "bun build ./src/index.ts --outdir ./bin --target bun --entry-naming xeno.js",
     "check": "bunx tsc --noEmit",
     "dev": "bun run --watch --no-clear-screen src/index.ts console --home ./dev-home",
     "format": "bunx prettier --write ."
@@ -18,5 +18,10 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.37",
+    "@opentui/core": "^0.1.77",
+    "pino": "^10.3.0"
   }
 }
