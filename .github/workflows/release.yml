@@ -85,7 +85,7 @@ jobs:
           sed -i "s|^  url \".*\"$|  url \"${ASSET_URL}\"|" "${formula_path}"
           sed -i "s|^  sha256 \".*\"$|  sha256 \"${SHA256}\"|" "${formula_path}"
 
-          rg -n "^(  url|  sha256)" "${formula_path}"
+          grep -nE "^(  url|  sha256)" "${formula_path}"
 
       - name: Create pull request in homebrew-tap
         uses: peter-evans/create-pull-request@v7
