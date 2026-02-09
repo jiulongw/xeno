@@ -32,12 +32,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           mkdir -p dist
-          tar -czf "dist/xeno-${TAG}.tar.gz" -C bin .
-          sha256sum "dist/xeno-${TAG}.tar.gz" > "dist/xeno-${TAG}.tar.gz.sha256"
+          tar -czf "dist/xeno-${TAG}.tar.gz" bin
 
       - name: Create release and upload packaged artifacts
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
-            dist/*.sha256
