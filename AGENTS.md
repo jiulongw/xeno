@@ -12,14 +12,16 @@
 - Commands:
   - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, graceful shutdown on `Ctrl-C`/`SIGTERM`
   - `console`: interactive OpenTUI chat UI that attaches to a running `serve` process over JSON-RPC, graceful shutdown on `Ctrl-C`/`SIGTERM` and abort support
-- `--home <string>` is optional. If omitted, `default_home` from `~/.config/xeno/config.json` is used.
+  - `install`: macOS-only command that writes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist` and loads it via `launchctl` to run `xeno serve` (entrypoint resolved from the running program path at install time); stdout/stderr are written to timestamped files under `~/.xeno/logs`; plist `EnvironmentVariables.PATH` includes Bun runtime directory
+  - `uninstall`: macOS-only command that unloads and removes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist`
+- `--home <string>` is optional. If omitted, `default_home` from `~/.config/xeno/config.json` is used. The resolved home path is normalized to an absolute path.
 - `serve` enables Telegram chat service automatically when a token is configured:
   - `TELEGRAM_BOT_TOKEN` environment variable (highest precedence)
   - `telegram_bot_token` in `~/.config/xeno/config.json`
 
 ## Home initialization
 
-- On startup, both commands resolve `home` (CLI `--home` override, otherwise config `default_home`) and call `createHome(home)` from `src/home.ts`.
+- On startup, `serve` and `console` resolve `home` (CLI `--home` override, otherwise config `default_home`) and call `createHome(home)` from `src/home.ts`.
 - Missing files are scaffolded from `template/`:
   - `CLAUDE.md`
   - `BOOTSTRAP.md`

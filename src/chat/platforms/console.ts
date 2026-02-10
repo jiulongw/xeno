@@ -18,6 +18,8 @@ import type {
   AbortRequestHandler,
   ChatInboundMessage,
   ChatService,
+  OutboundMessageOptions,
+  OutboundMessageTarget,
   PlatformCapabilities,
   PlatformType,
   UserMessageHandler,
@@ -220,8 +222,26 @@ export class ConsolePlatform implements ChatService {
     this.shutdown("SIGTERM");
   }
 
-  async sendMessage(content: string, isPartial: boolean): Promise<void> {
+  async sendMessage(
+    content: string,
+    isPartial: boolean,
+    options?: OutboundMessageOptions,
+  ): Promise<void> {
     if (!this.renderer || !this.conversationList) {
+      return;
+    }
+
+    if (
+      options?.reason === "proactive" &&
+      options.target &&
+      options.target.platform !== this.type
+    ) {
+      if (!isPartial) {
+        this.addMessage(
+          "agent",
+          `Proactive message sent to ${this.formatOutboundTarget(options.target)}.`,
+        );
+      }
       return;
     }
 
@@ -338,5 +358,9 @@ export class ConsolePlatform implements ChatService {
     this.pendingAgentMessage = null;
     this.activeQuery = false;
     this.abortingQuery = false;
+  }
+
+  private formatOutboundTarget(target: OutboundMessageTarget): string {
+    return `${target.platform}:${target.channelId}`;
   }
 }

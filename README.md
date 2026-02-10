@@ -1,15 +1,17 @@
 # xeno
 
-Bun CLI app with two commands:
+Bun CLI app with commands:
 
 - `serve`: start the gateway service (enables configured chat services such as Telegram) and host a Unix socket JSON-RPC endpoint
 - `console`: attach an interactive terminal chat UI to a running gateway via Unix socket JSON-RPC
+- `install`: macOS-only command to install and start a LaunchAgent (`cc.novacore.xeno.gateway`) for `xeno serve`, write stdout/stderr logs under `~/.xeno/logs`, and inject Bun's runtime directory into LaunchAgent `PATH`
+- `uninstall`: macOS-only command to stop and remove the LaunchAgent (`cc.novacore.xeno.gateway`)
 
-`--home <string>` is optional. If omitted, xeno uses `default_home` from `~/.config/xeno/config.json`.
+`--home <string>` is optional. If omitted, xeno uses `default_home` from `~/.config/xeno/config.json`. Resolved home paths are normalized to absolute paths.
 
 ## Home directory bootstrap
 
-Before running any command, xeno creates the resolved home directory (if needed) and initializes missing files:
+Before running `serve` or `console`, xeno creates the resolved home directory (if needed) and initializes missing files:
 
 - `CLAUDE.md`
 - `BOOTSTRAP.md`
@@ -45,6 +47,8 @@ Build output:
 ```bash
 bun run src/index.ts serve --home /tmp/xeno
 bun run src/index.ts console --home /tmp/xeno
+bun run src/index.ts install --home /tmp/xeno
+bun run src/index.ts uninstall
 ```
 
 `console` requires a running `serve` process for the same `--home`.

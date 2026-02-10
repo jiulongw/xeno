@@ -1,4 +1,4 @@
-export type CommandName = "serve" | "console";
+export type CommandName = "serve" | "console" | "install" | "uninstall";
 
 export type ParsedArgs = {
   command: CommandName;
@@ -10,12 +10,14 @@ export function printUsage(): void {
 Commands:
   serve      Start long-running service
   console    Run interactive debug console
+  install    Install macOS LaunchAgent
+  uninstall  Uninstall macOS LaunchAgent
 
 If --home is omitted, xeno uses default_home from ~/.config/xeno/config.json.\n`);
 }
 
 function isCommand(value: string): value is CommandName {
-  return value === "serve" || value === "console";
+  return value === "serve" || value === "console" || value === "install" || value === "uninstall";
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {

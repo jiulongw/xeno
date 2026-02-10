@@ -23,6 +23,20 @@ describe("parseArgs", () => {
     });
   });
 
+  test("parses install command", () => {
+    expect(parseArgs(["install"])).toEqual({
+      command: "install",
+      home: undefined,
+    });
+  });
+
+  test("parses uninstall command", () => {
+    expect(parseArgs(["uninstall"])).toEqual({
+      command: "uninstall",
+      home: undefined,
+    });
+  });
+
   test("throws when unknown argument is passed", () => {
     expect(() => parseArgs(["serve", "--home", "/tmp/x", "--bad"])).toThrow(
       "Unknown argument: --bad",

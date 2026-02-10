@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 export interface AppConfig {
   defaultHome?: string;
@@ -55,12 +55,14 @@ export function resolveHome(
   cliHome: string | undefined,
   config: AppConfig,
   configPath: string = getConfigPath(),
+  cwd: string = process.cwd(),
 ): string {
   const home = cliHome?.trim() || config.defaultHome?.trim();
   if (!home) {
     throw new Error(`Missing home. Pass --home <path> or set default_home in ${configPath}.`);
   }
-  return home;
+
+  return resolve(cwd, expandHomeShortcut(home));
 }
 
 export function resolveTelegramBotToken(
@@ -89,4 +91,16 @@ function readOptionalString(
   }
 
   return value;
+}
+
+function expandHomeShortcut(pathValue: string, baseHome: string = homedir()): string {
+  if (pathValue === "~") {
+    return baseHome;
+  }
+
+  if (pathValue.startsWith("~/")) {
+    return join(baseHome, pathValue.slice(2));
+  }
+
+  return pathValue;
 }

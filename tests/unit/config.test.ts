@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   getConfigPath,
@@ -86,6 +86,19 @@ describe("config", () => {
     });
 
     expect(home).toBe("/tmp/from-config");
+  });
+
+  test("resolveHome resolves relative --home to absolute path", () => {
+    const home = resolveHome("relative/home", {}, getConfigPath("/tmp/fake-home"), "/tmp/work");
+    expect(home).toBe("/tmp/work/relative/home");
+  });
+
+  test("resolveHome expands tilde shortcut from config and returns absolute path", () => {
+    const home = resolveHome(undefined, {
+      defaultHome: "~/xeno-home",
+    });
+
+    expect(home).toBe(join(homedir(), "xeno-home"));
   });
 
   test("resolveHome throws when neither --home nor default_home is set", () => {

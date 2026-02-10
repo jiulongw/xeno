@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import type {
   ChatInboundMessage,
   ChatService,
+  OutboundMessageOptions,
   PlatformCapabilities,
   UserMessageHandler,
   PlatformType,
@@ -13,6 +14,7 @@ import { EchoMockAgent } from "../helpers/echo-mock-agent";
 type MessageRecord = {
   content: string;
   isPartial: boolean;
+  options?: OutboundMessageOptions;
 };
 
 function makeQueryService(type: PlatformType = "console") {
@@ -27,8 +29,8 @@ function makeQueryService(type: PlatformType = "console") {
     } satisfies PlatformCapabilities,
     messages,
     stats,
-    sendMessage: async (content: string, isPartial: boolean) => {
-      messages.push({ content, isPartial });
+    sendMessage: async (content: string, isPartial: boolean, options?: OutboundMessageOptions) => {
+      messages.push({ content, isPartial, options });
     },
     sendStats: async (value: string) => {
       stats.push(value);
@@ -36,15 +38,18 @@ function makeQueryService(type: PlatformType = "console") {
   };
 }
 
-function inbound(content: string): ChatInboundMessage {
+function inbound(
+  content: string,
+  context: ChatInboundMessage["context"] = {
+    type: "console",
+    metadata: {
+      source: "test",
+    },
+  },
+): ChatInboundMessage {
   return {
     content,
-    context: {
-      type: "console",
-      metadata: {
-        source: "test",
-      },
-    },
+    context,
   };
 }
 
@@ -61,8 +66,8 @@ describe("Gateway", () => {
     await gateway.submitMessage(service, inbound("hello"));
 
     expect(service.messages).toEqual([
-      { content: "hello", isPartial: true },
-      { content: "hello", isPartial: false },
+      { content: "hello", isPartial: true, options: { reason: "response" } },
+      { content: "hello", isPartial: false, options: { reason: "response" } },
     ]);
     expect(service.stats.length).toBe(1);
     expect(service.stats[0]).toContain("result=success");
@@ -89,6 +94,7 @@ describe("Gateway", () => {
       {
         content: "A request is already running. Press Ctrl-C to abort it.",
         isPartial: false,
+        options: { reason: "response" },
       },
     ]);
   });
@@ -108,7 +114,9 @@ describe("Gateway", () => {
     await pending;
 
     expect(agent.abortCount).toBeGreaterThanOrEqual(1);
-    expect(service.messages).toEqual([{ content: "[No response]", isPartial: false }]);
+    expect(service.messages).toEqual([
+      { content: "[No response]", isPartial: false, options: { reason: "response" } },
+    ]);
   });
 
   test("sends fallback error message on query failure", async () => {
@@ -122,7 +130,9 @@ describe("Gateway", () => {
 
     await gateway.submitMessage(service, inbound("trigger"));
 
-    expect(service.messages).toEqual([{ content: "Error: boom", isPartial: false }]);
+    expect(service.messages).toEqual([
+      { content: "Error: boom", isPartial: false, options: { reason: "response" } },
+    ]);
   });
 
   test("awaits onUserMessage handlers so scoped platform state remains valid while replying", async () => {
@@ -158,7 +168,7 @@ describe("Gateway", () => {
         if (!activeReplyScope) {
           return;
         }
-        delivered.push({ content, isPartial });
+        delivered.push({ content, isPartial, options: { reason: "response" } });
       },
       sendStats: async () => undefined,
     };
@@ -173,8 +183,96 @@ describe("Gateway", () => {
     await gateway.waitForAnyServiceStop();
 
     expect(delivered).toEqual([
-      { content: "hello", isPartial: true },
-      { content: "hello", isPartial: false },
+      { content: "hello", isPartial: true, options: { reason: "response" } },
+      { content: "hello", isPartial: false, options: { reason: "response" } },
+    ]);
+  });
+
+  test("updates last channel when inbound context contains channel id", async () => {
+    const agent = new EchoMockAgent();
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("telegram");
+
+    await gateway.submitMessage(
+      service,
+      inbound("hello", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    expect(agent.getLastChannel()).toEqual({
+      platform: "telegram",
+      channelId: "1001",
+    });
+  });
+
+  test("broadcasts proactive messages to all services with target metadata", async () => {
+    const agent = new EchoMockAgent();
+    agent.updateLastChannel({
+      type: "telegram",
+      channelId: "1001",
+    });
+
+    const deliveries: Array<{
+      service: PlatformType;
+      content: string;
+      isPartial: boolean;
+      options?: OutboundMessageOptions;
+    }> = [];
+
+    const createService = (type: PlatformType): ChatService => ({
+      type,
+      capabilities: {
+        supportsStreaming: true,
+        supportsMarkdownTables: type === "console",
+      },
+      start: async () => undefined,
+      stop: async () => undefined,
+      onUserMessage: () => undefined,
+      sendMessage: async (content, isPartial, options) => {
+        deliveries.push({ service: type, content, isPartial, options });
+      },
+      sendStats: async () => undefined,
+    });
+
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [createService("console"), createService("telegram")],
+    });
+
+    await gateway.broadcastProactiveMessage("attention");
+
+    expect(deliveries).toEqual([
+      {
+        service: "console",
+        content: "attention",
+        isPartial: false,
+        options: {
+          reason: "proactive",
+          target: {
+            platform: "telegram",
+            channelId: "1001",
+          },
+        },
+      },
+      {
+        service: "telegram",
+        content: "attention",
+        isPartial: false,
+        options: {
+          reason: "proactive",
+          target: {
+            platform: "telegram",
+            channelId: "1001",
+          },
+        },
+      },
     ]);
   });
 });

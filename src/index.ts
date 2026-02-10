@@ -15,6 +15,7 @@ import {
 import { Gateway } from "./gateway";
 import { createHome } from "./home";
 import { GatewayRpcServer } from "./ipc/gateway-rpc";
+import { installLaunchAgent, uninstallLaunchAgent } from "./launch-agent";
 import { logger } from "./logger";
 
 function buildServeServices(home: string, config: AppConfig): ChatService[] {
@@ -92,9 +93,40 @@ async function runConsole(home: string): Promise<void> {
   await runConsoleClient(home);
 }
 
+async function runInstall(home: string): Promise<void> {
+  const result = await installLaunchAgent({
+    home,
+    executablePath: process.argv[1],
+    cwd: process.cwd(),
+    runtimePath: process.execPath,
+    pathEnv: process.env.PATH,
+  });
+  process.stdout.write(
+    `Installed LaunchAgent ${result.label} at ${result.plistPath} (entrypoint: ${result.executablePath}; stdout: ${result.stdoutPath}; stderr: ${result.stderrPath}).\n`,
+  );
+}
+
+async function runUninstall(): Promise<void> {
+  const result = await uninstallLaunchAgent();
+  process.stdout.write(`Uninstalled LaunchAgent ${result.label} from ${result.plistPath}.\n`);
+}
+
 async function main(): Promise<void> {
   try {
     const { command, home: homeFromArgs } = parseArgs(process.argv.slice(2));
+
+    if (command === "install") {
+      const config = await loadUserConfig();
+      const home = resolveHome(homeFromArgs, config);
+      await runInstall(home);
+      return;
+    }
+
+    if (command === "uninstall") {
+      await runUninstall();
+      return;
+    }
+
     const config = await loadUserConfig();
     const home = resolveHome(homeFromArgs, config);
     await createHome(home);

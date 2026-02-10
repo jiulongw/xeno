@@ -5,6 +5,7 @@ import type {
   AbortRequestHandler,
   ChatInboundMessage,
   ChatService,
+  OutboundMessageOptions,
   PlatformCapabilities,
   PlatformType,
   UserMessageHandler,
@@ -79,9 +80,15 @@ export class TelegramPlatform implements ChatService {
       );
     });
 
-    bot.command("start", async (ctx) => {
-      await ctx.reply(
-        "xeno is online. Send a message to chat with the shared home session context.",
+    bot.command("start", (ctx) => {
+      this.platformLogger.info(
+        {
+          userId: ctx.from ? String(ctx.from.id) : undefined,
+          channelId: ctx.chat ? String(ctx.chat.id) : undefined,
+          chatType: ctx.chat?.type,
+          username: ctx.from?.username,
+        },
+        "Telegram /start received",
       );
     });
 
@@ -124,12 +131,41 @@ export class TelegramPlatform implements ChatService {
     }
   }
 
-  async sendMessage(content: string, isPartial: boolean): Promise<void> {
-    if (!this.bot || this.activeChatId === null) {
+  async sendMessage(
+    content: string,
+    isPartial: boolean,
+    options?: OutboundMessageOptions,
+  ): Promise<void> {
+    if (!this.bot) {
       return;
     }
 
     const normalized = content.trim().length > 0 ? content : "[No response]";
+
+    if (options?.reason === "proactive") {
+      const target = options.target;
+      if (!target || target.platform !== this.type) {
+        return;
+      }
+
+      const targetChatId = this.parseChatId(target.channelId);
+      if (targetChatId === null) {
+        this.platformLogger.warn(
+          { target },
+          "Skipping proactive Telegram message: invalid chat ID",
+        );
+        return;
+      }
+
+      if (!isPartial) {
+        await this.bot.api.sendMessage(targetChatId, normalized);
+      }
+      return;
+    }
+
+    if (this.activeChatId === null) {
+      return;
+    }
 
     if (this.activeMessageId === null) {
       const message = await this.bot.api.sendMessage(this.activeChatId, normalized);
@@ -247,5 +283,13 @@ export class TelegramPlatform implements ChatService {
     this.activeText = "";
     this.pendingPartial = null;
     this.lastEditAt = 0;
+  }
+
+  private parseChatId(value: string): number | null {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed)) {
+      return null;
+    }
+    return parsed;
   }
 }

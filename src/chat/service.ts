@@ -12,6 +12,16 @@ export interface PlatformCapabilities {
   supportsMarkdownTables: boolean;
 }
 
+export interface OutboundMessageTarget {
+  platform: PlatformType;
+  channelId: string;
+}
+
+export interface OutboundMessageOptions {
+  reason: "response" | "proactive";
+  target?: OutboundMessageTarget;
+}
+
 export interface ChatInboundMessage {
   content: string;
   context: PlatformContext;
@@ -30,7 +40,7 @@ export interface ChatService {
   onUserMessage(handler: UserMessageHandler): void;
   onAbortRequest?(handler: AbortRequestHandler): void;
 
-  sendMessage(content: string, isPartial: boolean): Promise<void>;
+  sendMessage(content: string, isPartial: boolean, options?: OutboundMessageOptions): Promise<void>;
   sendStats(stats: string): Promise<void>;
 }
 

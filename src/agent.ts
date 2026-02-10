@@ -11,7 +11,7 @@ import type {
   McpServerConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import pino from "pino";
-import type { PlatformContext } from "./chat/service";
+import type { PlatformContext, PlatformType } from "./chat/service";
 import { logger } from "./logger";
 
 export interface QueryOptions {
@@ -25,8 +25,15 @@ export interface ConversationTurn {
   content: string;
 }
 
+export interface LastChannel {
+  platform: PlatformType;
+  channelId: string;
+}
+
 export interface AgentRuntime {
   getSessionId(): string | null;
+  getLastChannel(): LastChannel | null;
+  updateLastChannel(context: PlatformContext): void;
   getConversationHistory(): Promise<ConversationTurn[]>;
   query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage>;
   abort(): void;
@@ -39,16 +46,63 @@ export class Agent implements AgentRuntime {
 
   private abortController: AbortController | null = null;
   private sessionId: string | null;
+  private lastChannel: LastChannel | null;
 
   constructor(dir: string) {
     this.dir = dir;
     this.logger = logger.child({ home: dir });
     this.pathToClaudeCodeExecutable = process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE;
-    this.sessionId = this.loadSessionId();
+    const state = this.loadSessionState();
+    this.sessionId = state.sessionId;
+    this.lastChannel = state.lastChannel;
   }
 
   getSessionId(): string | null {
     return this.sessionId;
+  }
+
+  getLastChannel(): LastChannel | null {
+    if (!this.lastChannel) {
+      return null;
+    }
+    return { ...this.lastChannel };
+  }
+
+  updateLastChannel(context: PlatformContext): void {
+    const channelId = context.channelId?.trim();
+    if (!channelId) {
+      return;
+    }
+
+    const next: LastChannel = {
+      platform: context.type,
+      channelId,
+    };
+
+    if (this.isSameLastChannel(this.lastChannel, next)) {
+      return;
+    }
+
+    const existingSession = this.readSessionData() ?? {};
+    const existingLastChannel = this.parseLastChannel(existingSession.last_channel);
+    if (this.isSameLastChannel(existingLastChannel, next)) {
+      this.lastChannel = existingLastChannel;
+      return;
+    }
+
+    try {
+      this.writeSessionData({
+        ...existingSession,
+        last_channel: {
+          platform: next.platform,
+          channel_id: next.channelId,
+        },
+      });
+      this.lastChannel = next;
+      this.logger.debug({ lastChannel: next }, "Saved last channel");
+    } catch (error) {
+      this.logger.error({ error }, "Failed to save last channel");
+    }
   }
 
   async getConversationHistory(): Promise<ConversationTurn[]> {
@@ -197,38 +251,95 @@ export class Agent implements AgentRuntime {
     return join(this.dir, ".xeno", "session.json");
   }
 
-  private loadSessionId(): string | null {
-    try {
-      if (!existsSync(this.sessionFilePath)) return null;
+  private loadSessionState(): { sessionId: string | null; lastChannel: LastChannel | null } {
+    const data = this.readSessionData();
+    if (!data) {
+      return { sessionId: null, lastChannel: null };
+    }
 
-      const data = JSON.parse(readFileSync(this.sessionFilePath, "utf-8"));
-      const sessionId = data.main_session_id as string;
-      if (!sessionId) return null;
+    const sessionId =
+      typeof data.main_session_id === "string" && data.main_session_id.length > 0
+        ? data.main_session_id
+        : null;
+    const lastChannel = this.parseLastChannel(data.last_channel);
+    if (sessionId) {
       this.logger.debug("Loaded session: %s", sessionId);
-      return sessionId;
+    }
+    if (lastChannel) {
+      this.logger.debug({ lastChannel }, "Loaded last channel");
+    }
+
+    return { sessionId, lastChannel };
+  }
+
+  private persistSessionId(id: string) {
+    const existingSession = this.readSessionData() ?? {};
+    const existingSessionId =
+      typeof existingSession.main_session_id === "string" ? existingSession.main_session_id : null;
+
+    if (existingSessionId === id) {
+      this.sessionId = id;
+      return;
+    }
+
+    try {
+      this.writeSessionData({
+        ...existingSession,
+        main_session_id: id,
+      });
+      this.sessionId = id;
+      this.logger.debug("Saved session: %s", id);
+    } catch (error) {
+      this.logger.error({ error }, "Failed to save session");
+    }
+  }
+
+  private readSessionData(): Record<string, unknown> | null {
+    try {
+      if (!existsSync(this.sessionFilePath)) {
+        return null;
+      }
+
+      const parsed: unknown = JSON.parse(readFileSync(this.sessionFilePath, "utf-8"));
+      if (!parsed || typeof parsed !== "object") {
+        return null;
+      }
+
+      return parsed as Record<string, unknown>;
     } catch {
       return null;
     }
   }
 
-  private persistSessionId(id: string) {
-    let existingSession = null;
-    try {
-      if (existsSync(this.sessionFilePath)) {
-        existingSession = JSON.parse(readFileSync(this.sessionFilePath, "utf-8"));
-      }
-    } catch {}
+  private writeSessionData(data: Record<string, unknown>): void {
+    mkdirSync(dirname(this.sessionFilePath), { recursive: true });
+    writeFileSync(this.sessionFilePath, JSON.stringify(data, null, 2));
+  }
 
-    try {
-      mkdirSync(dirname(this.sessionFilePath), { recursive: true });
-      const data = Object.assign({}, existingSession, { main_session_id: id });
-      writeFileSync(this.sessionFilePath, JSON.stringify(data, null, 2));
-      this.sessionId = id;
-      this.logger.debug("Saved session: %s", id);
-    } catch (e) {
-      // ignore
-      this.logger.error("Failed to save session: %s", e);
+  private parseLastChannel(value: unknown): LastChannel | null {
+    const record = this.getRecord(value);
+    if (!record) {
+      return null;
     }
+
+    const platform = record.platform;
+    const channelId = typeof record.channel_id === "string" ? record.channel_id.trim() : "";
+    if (!this.isPlatformType(platform) || channelId.length === 0) {
+      return null;
+    }
+
+    return {
+      platform,
+      channelId,
+    };
+  }
+
+  private isPlatformType(value: unknown): value is PlatformType {
+    return value === "console" || value === "telegram" || value === "discord" || value === "slack";
+  }
+
+  private isSameLastChannel(left: LastChannel | null, right: LastChannel): boolean {
+    return left?.platform === right.platform && left?.channelId === right.channelId;
   }
 
   private getSessionJsonlPath(sessionId: string): string {
