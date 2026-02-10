@@ -75,8 +75,8 @@ describe("CronStore", () => {
 
   test("treats invalid JSON store file as empty", async () => {
     const home = await makeTempHome();
-    const storePath = join(home, ".xeno", "cron-tasks.json");
-    await mkdir(join(home, ".xeno"), { recursive: true });
+    const storePath = join(home, "cron-tasks.json");
+    await mkdir(home, { recursive: true });
     await Bun.write(storePath, "{");
 
     const store = new CronStore(home);
@@ -85,13 +85,30 @@ describe("CronStore", () => {
 
   test("ignores malformed task entries", async () => {
     const home = await makeTempHome();
-    const storePath = join(home, ".xeno", "cron-tasks.json");
-    await mkdir(join(home, ".xeno"), { recursive: true });
+    const storePath = join(home, "cron-tasks.json");
+    await mkdir(home, { recursive: true });
     await writeFile(
       storePath,
       JSON.stringify({
         version: 1,
         tasks: [{ id: "bad" }, makeTask()],
+      }),
+      "utf-8",
+    );
+
+    const store = new CronStore(home);
+    expect(await store.listTasks()).toEqual([makeTask()]);
+  });
+
+  test("reads legacy .xeno cron store when top-level store is absent", async () => {
+    const home = await makeTempHome();
+    const legacyStorePath = join(home, ".xeno", "cron-tasks.json");
+    await mkdir(join(home, ".xeno"), { recursive: true });
+    await writeFile(
+      legacyStorePath,
+      JSON.stringify({
+        version: 1,
+        tasks: [makeTask()],
       }),
       "utf-8",
     );

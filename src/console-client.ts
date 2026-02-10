@@ -13,6 +13,7 @@ import {
 
 import { GatewayRpcClient } from "./ipc/gateway-rpc";
 import { logger } from "./logger";
+import type { Attachment } from "./media";
 
 export async function runConsoleClient(home: string): Promise<void> {
   const rpcClient = new GatewayRpcClient(home);
@@ -236,11 +237,15 @@ export async function runConsoleClient(home: string): Promise<void> {
             metadata: { home },
           },
           {
-            onStream: (content) => {
+            onStream: (content, isPartial, attachments) => {
               sawResponse = true;
               agentMessage.content = content;
               conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
               renderer.requestRender();
+
+              if (!isPartial) {
+                printAttachments(attachments, addMessage);
+              }
             },
             onStats: (stats) => {
               addMessage("agent", `[stats] ${stats}`);
@@ -298,5 +303,19 @@ export async function runConsoleClient(home: string): Promise<void> {
     if (!renderer.isDestroyed) {
       renderer.destroy();
     }
+  }
+}
+
+function printAttachments(
+  attachments: Attachment[] | undefined,
+  addMessage: (role: "user" | "agent", content: string) => TextRenderable,
+): void {
+  if (!attachments || attachments.length === 0) {
+    return;
+  }
+
+  for (const attachment of attachments) {
+    const label = attachment.fileName?.trim() || attachment.type;
+    addMessage("agent", `[attachment: ${label}] ${attachment.path}`);
   }
 }

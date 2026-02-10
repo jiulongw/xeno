@@ -307,7 +307,7 @@ describe("Gateway", () => {
       services: [createService("console"), createService("telegram")],
     });
 
-    await gateway.broadcastProactiveMessage("attention");
+    await gateway.broadcastMessage("attention");
 
     expect(deliveries).toEqual([
       {
@@ -365,7 +365,7 @@ describe("Gateway", () => {
       services: [service],
     });
 
-    const outcome = await gateway.sendProactiveMessage({
+    const outcome = await gateway.sendMessage({
       content: "attention",
       target: {
         platform: "telegram",
@@ -403,7 +403,7 @@ describe("Gateway", () => {
       services: [],
     });
 
-    const outcome = await gateway.sendProactiveMessage({
+    const outcome = await gateway.sendMessage({
       content: "attention",
     });
 

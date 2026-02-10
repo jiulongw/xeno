@@ -71,7 +71,7 @@ You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
 - During cron execution, xeno injects MCP server `xeno-messenger` with tool `send_message` so tasks can send proactive messages (default target: last known channel)
 - Cron task `notify` modes are `auto` and `never`
 - Cron engine result callbacks are currently not auto-broadcast to chat channels
-- Persistent cron tasks are stored at `<home>/.xeno/cron-tasks.json`
+- Persistent cron tasks are stored at `<home>/cron-tasks.json`
 - Built-in heartbeat task:
   - Reads `HEARTBEAT.md`
   - Runs every 30 minutes by default

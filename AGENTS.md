@@ -27,7 +27,7 @@
 
 - Runtime dependency: `node-cron`
 - Cron engine: `src/cron/engine.ts`
-  - Loads persisted tasks from `<home>/.xeno/cron-tasks.json` via `src/cron/store.ts`
+  - Loads persisted tasks from `<home>/cron-tasks.json` via `src/cron/store.ts`
   - Supports `interval`, `once`, and `cron_expression` schedules
   - `notify` supports `auto` and `never` (`always` is not supported)
   - Cron runs are executed via `Gateway.runCronQuery` and prompt-prefixed as `/cron "<task_id>"`

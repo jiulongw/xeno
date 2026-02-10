@@ -1,3 +1,5 @@
+import type { Attachment, AttachmentType } from "../media";
+
 export type PlatformType = "console" | "telegram" | "discord" | "slack";
 
 export interface PlatformContext {
@@ -10,6 +12,7 @@ export interface PlatformContext {
 export interface PlatformCapabilities {
   supportsStreaming: boolean;
   supportsMarkdownTables: boolean;
+  supportedMediaTypes?: AttachmentType[];
 }
 
 export interface OutboundMessageTarget {
@@ -20,11 +23,13 @@ export interface OutboundMessageTarget {
 export interface OutboundMessageOptions {
   reason: "response" | "proactive";
   target?: OutboundMessageTarget;
+  attachments?: Attachment[];
 }
 
 export interface ChatInboundMessage {
   content: string;
   context: PlatformContext;
+  attachments?: Attachment[];
 }
 
 export type UserMessageHandler = (message: ChatInboundMessage) => Promise<void> | void;

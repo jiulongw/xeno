@@ -14,6 +14,7 @@ import {
 
 import type { Agent } from "../../agent";
 import { logger } from "../../logger";
+import type { Attachment } from "../../media";
 import type {
   AbortRequestHandler,
   ChatInboundMessage,
@@ -251,6 +252,7 @@ export class ConsolePlatform implements ChatService {
     this.renderer.requestRender();
 
     if (!isPartial) {
+      this.printAttachments(options?.attachments);
       this.pendingAgentMessage = null;
       this.activeQuery = false;
       this.abortingQuery = false;
@@ -359,5 +361,16 @@ export class ConsolePlatform implements ChatService {
 
   private formatOutboundTarget(target: OutboundMessageTarget): string {
     return `${target.platform}:${target.channelId}`;
+  }
+
+  private printAttachments(attachments: Attachment[] | undefined): void {
+    if (!attachments || attachments.length === 0) {
+      return;
+    }
+
+    for (const attachment of attachments) {
+      const label = attachment.fileName?.trim() || attachment.type;
+      this.addMessage("agent", `[attachment: ${label}] ${attachment.path}`);
+    }
   }
 }

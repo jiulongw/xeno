@@ -37,6 +37,7 @@ const TEMPLATE_FILES: TemplateFile[] = [
 export async function createHome(homeDir: string): Promise<void> {
   await mkdir(homeDir, { recursive: true });
   await mkdir(join(homeDir, "memory"), { recursive: true });
+  await mkdir(join(homeDir, "media", "received"), { recursive: true });
 
   for (const template of TEMPLATE_FILES) {
     const destination = join(homeDir, template.relativePath);

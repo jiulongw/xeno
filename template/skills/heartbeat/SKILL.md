@@ -16,7 +16,7 @@ You are handling a heartbeat check for an AI agent. Working directory: $CWD
 - Check git status for uncommitted changes worth noting
 - Note anything time-sensitive
 
-**Step 3:** Return your findings as a concise summary. If nothing needs attention, respond with exactly: `HEARTBEAT_OK`
+**Step 3:** Return your findings as a concise summary. If something needs attention, use the messenger mcp server to send a notification message.
 
 Rules:
 

@@ -8,6 +8,7 @@ import { logger } from "../logger";
 import type { Gateway } from "../gateway";
 import type { ConversationTurn } from "../agent";
 import type { ChatInboundMessage, PlatformCapabilities, PlatformContext } from "../chat/service";
+import type { Attachment, AttachmentType } from "../media";
 import { JsonRpcPeer } from "./json-rpc";
 import { getGatewaySocketPath } from "./socket";
 
@@ -20,6 +21,7 @@ type GatewayQueryParams = {
   requestId: string;
   content: string;
   context: PlatformContext;
+  attachments?: Attachment[];
 };
 
 type GatewayAbortParams = {
@@ -39,6 +41,7 @@ type StreamNotification = {
   requestId: string;
   content: string;
   isPartial: boolean;
+  attachments?: Attachment[];
 };
 
 type StatsNotification = {
@@ -182,11 +185,16 @@ export class GatewayRpcServer {
     const responder = {
       type: serviceType,
       capabilities,
-      sendMessage: async (content: string, isPartial: boolean) => {
+      sendMessage: async (
+        content: string,
+        isPartial: boolean,
+        options?: { attachments?: Attachment[] },
+      ) => {
         peer.notify("gateway.stream", {
           requestId: params.requestId,
           content,
           isPartial,
+          attachments: !isPartial ? options?.attachments : undefined,
         } satisfies StreamNotification);
 
         if (!isPartial) {
@@ -204,6 +212,7 @@ export class GatewayRpcServer {
     const inbound: ChatInboundMessage = {
       content: params.content,
       context: params.context,
+      attachments: params.attachments,
     };
 
     try {
@@ -241,6 +250,7 @@ export class GatewayRpcServer {
     const requestId = record.requestId;
     const content = record.content;
     const context = record.context;
+    const attachments = parseAttachments(record.attachments, "query");
 
     if (typeof requestId !== "string" || requestId.length === 0) {
       throw new Error("Invalid query requestId.");
@@ -261,6 +271,7 @@ export class GatewayRpcServer {
     return {
       requestId,
       content,
+      attachments,
       context: {
         type,
         userId: typeof contextRecord.userId === "string" ? contextRecord.userId : undefined,
@@ -326,7 +337,7 @@ export class GatewayRpcServer {
 }
 
 export interface GatewayRpcQueryHandlers {
-  onStream: (content: string, isPartial: boolean) => void;
+  onStream: (content: string, isPartial: boolean, attachments?: Attachment[]) => void;
   onStats: (stats: string) => void;
 }
 
@@ -386,6 +397,7 @@ export class GatewayRpcClient {
     content: string,
     context: PlatformContext,
     handlers: GatewayRpcQueryHandlers,
+    attachments?: Attachment[],
   ): Promise<void> {
     const peer = this.requirePeer();
     const requestId = randomUUID();
@@ -399,6 +411,7 @@ export class GatewayRpcClient {
         requestId,
         content,
         context,
+        attachments,
       } satisfies GatewayQueryParams);
       await completion;
     } catch (error) {
@@ -436,7 +449,7 @@ export class GatewayRpcClient {
       if (!pending) {
         return;
       }
-      pending.handlers.onStream(parsed.content, parsed.isPartial);
+      pending.handlers.onStream(parsed.content, parsed.isPartial, parsed.attachments);
       return;
     }
 
@@ -526,10 +539,13 @@ export class GatewayRpcClient {
     ) {
       throw new Error("Invalid stream notification payload.");
     }
+
+    const attachments = parseAttachments(record.attachments, "stream");
     return {
       requestId: record.requestId,
       content: record.content,
       isPartial: record.isPartial,
+      attachments,
     };
   }
 
@@ -605,6 +621,50 @@ export class GatewayRpcClient {
     }
     return this.peer;
   }
+}
+
+const ATTACHMENT_TYPES: readonly AttachmentType[] = [
+  "image",
+  "video",
+  "audio",
+  "document",
+  "animation",
+  "sticker",
+];
+
+function isAttachmentType(value: unknown): value is AttachmentType {
+  return typeof value === "string" && ATTACHMENT_TYPES.includes(value as AttachmentType);
+}
+
+function parseAttachments(value: unknown, source: "query" | "stream"): Attachment[] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${source} attachments payload.`);
+  }
+
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`Invalid ${source} attachment.`);
+    }
+
+    const record = entry as Record<string, unknown>;
+    const type = record.type;
+    const path = record.path;
+    if (!isAttachmentType(type) || typeof path !== "string" || path.trim().length === 0) {
+      throw new Error(`Invalid ${source} attachment payload.`);
+    }
+
+    return {
+      type,
+      path,
+      mimeType: typeof record.mimeType === "string" ? record.mimeType : undefined,
+      fileName: typeof record.fileName === "string" ? record.fileName : undefined,
+      caption: typeof record.caption === "string" ? record.caption : undefined,
+      size: typeof record.size === "number" ? record.size : undefined,
+    } satisfies Attachment;
+  });
 }
 
 async function isSocketActive(socketPath: string): Promise<boolean> {

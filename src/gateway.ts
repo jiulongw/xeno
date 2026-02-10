@@ -10,6 +10,7 @@ import type {
   OutboundMessageTarget,
 } from "./chat/service";
 import { logger } from "./logger";
+import type { Attachment } from "./media";
 
 export interface GatewayConfig {
   home: string;
@@ -29,11 +30,13 @@ export interface GatewayCronQueryRequest {
 export interface GatewayCronQueryResult {
   result: string;
   durationMs: number;
+  attachments?: Attachment[];
 }
 
 export interface SendMessageRequest {
   content: string;
   target?: OutboundMessageTarget;
+  attachments?: Attachment[];
 }
 
 export interface SendMessageResult {
@@ -166,12 +169,12 @@ export class Gateway {
     return this.agent.getConversationHistory();
   }
 
-  async broadcastProactiveMessage(content: string): Promise<void> {
-    await this.sendProactiveMessage({ content });
+  async broadcastMessage(content: string): Promise<void> {
+    await this.sendMessage({ content });
   }
 
-  async sendProactiveMessage(request: SendMessageRequest): Promise<SendMessageResult> {
-    const targetResolution = this.resolveProactiveTarget(request.target);
+  async sendMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    const targetResolution = this.resolveTarget(request.target);
     if (!targetResolution.target) {
       logger.warn(
         {
@@ -192,6 +195,9 @@ export class Gateway {
       reason: "proactive",
       target,
     };
+    if (request.attachments && request.attachments.length > 0) {
+      options.attachments = request.attachments;
+    }
     const services = this.registry.list();
     const results = await Promise.allSettled(
       services.map(async (service) => {
@@ -258,6 +264,7 @@ export class Gateway {
         includePartialMessages: true,
         platformContext: inbound.context,
         mcpServers: this.mcpServers,
+        attachments: inbound.attachments,
       })) {
         if (this.shuttingDown) {
           break;
@@ -329,7 +336,7 @@ export class Gateway {
     };
   }
 
-  private resolveProactiveTarget(targetOverride: OutboundMessageTarget | undefined): {
+  private resolveTarget(targetOverride: OutboundMessageTarget | undefined): {
     target: OutboundMessageTarget | null;
     reason?: string;
   } {

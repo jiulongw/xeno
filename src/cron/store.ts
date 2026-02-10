@@ -13,10 +13,12 @@ const CRON_STORE_VERSION = 1;
 
 export class CronStore {
   readonly filePath: string;
+  readonly legacyFilePath: string;
   private readonly storeLogger;
 
   constructor(home: string) {
-    this.filePath = join(home, ".xeno", "cron-tasks.json");
+    this.filePath = join(home, "cron-tasks.json");
+    this.legacyFilePath = join(home, ".xeno", "cron-tasks.json");
     this.storeLogger = logger.child({ component: "cron-store", filePath: this.filePath });
   }
 
@@ -61,10 +63,18 @@ export class CronStore {
     try {
       raw = await readFile(this.filePath, "utf-8");
     } catch (error) {
-      if (isNotFoundError(error)) {
-        return emptyStoreFile();
+      if (!isNotFoundError(error)) {
+        throw error;
       }
-      throw error;
+
+      try {
+        raw = await readFile(this.legacyFilePath, "utf-8");
+      } catch (legacyError) {
+        if (isNotFoundError(legacyError)) {
+          return emptyStoreFile();
+        }
+        throw legacyError;
+      }
     }
 
     let parsed: unknown;

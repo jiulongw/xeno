@@ -48,6 +48,12 @@ describe("createHome", () => {
 
     const memoryDirStat = await Bun.file(join(home, "memory")).stat();
     expect(memoryDirStat.isDirectory()).toBe(true);
+
+    const mediaDirStat = await Bun.file(join(home, "media")).stat();
+    expect(mediaDirStat.isDirectory()).toBe(true);
+
+    const receivedMediaDirStat = await Bun.file(join(home, "media", "received")).stat();
+    expect(receivedMediaDirStat.isDirectory()).toBe(true);
   });
 
   test("does not overwrite existing files", async () => {

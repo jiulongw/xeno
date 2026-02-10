@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   SDKMessage,
+  SDKResultMessage,
   SDKSystemMessage,
   HookCallbackMatcher,
   Options,
@@ -13,12 +14,14 @@ import pino from "pino";
 import type { PlatformContext, PlatformType } from "./chat/service";
 import { logger } from "./logger";
 import { HEARTBEAT_TASK_ID } from "./cron/types";
+import type { Attachment } from "./media";
 
 export interface QueryOptions {
   includePartialMessages?: boolean;
   mcpServers?: Record<string, McpServerConfig>;
   platformContext?: PlatformContext;
   cronContext?: CronContext;
+  attachments?: Attachment[];
 }
 
 export interface CronContext {
@@ -158,7 +161,8 @@ export class Agent implements AgentRuntime {
   async *query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage> {
     this.abortController = new AbortController();
     const sessionId = this.sessionId;
-    const { includePartialMessages, mcpServers, platformContext, cronContext } = options || {};
+    const { includePartialMessages, mcpServers, platformContext, cronContext, attachments } =
+      options || {};
 
     const preCompactHook: HookCallbackMatcher = {
       hooks: [this.preCompactHook],
@@ -193,7 +197,11 @@ export class Agent implements AgentRuntime {
       this.logger.info("Starting new session");
     }
 
-    const prompt = this.augmentPrompt(userPrompt, { platformContext, cronContext });
+    const prompt = this.augmentPrompt(userPrompt, {
+      platformContext,
+      cronContext,
+      attachments,
+    });
     const stream = query({ prompt, options: queryOptions });
 
     try {
@@ -203,6 +211,10 @@ export class Agent implements AgentRuntime {
           const initMsg = message as SDKSystemMessage;
           this.persistSessionId(initMsg.session_id);
           this.logger.info("Session initialized: %s", initMsg.session_id);
+        }
+
+        if (message.type === "result") {
+          this.logResultStats(message, queryOptions.model);
         }
 
         yield message;
@@ -233,21 +245,42 @@ export class Agent implements AgentRuntime {
     {
       platformContext,
       cronContext,
-    }: { platformContext?: PlatformContext; cronContext?: CronContext },
+      attachments,
+    }: { platformContext?: PlatformContext; cronContext?: CronContext; attachments?: Attachment[] },
   ): string {
+    let basePrompt = userPrompt;
+
     if (platformContext) {
-      return `<developer>message from ${platformContext.type}</developer>\n\n${userPrompt}`;
+      basePrompt = `<developer>message from ${platformContext.type}</developer>\n\n${userPrompt}`;
     }
 
     if (cronContext) {
       if (cronContext.taskId === HEARTBEAT_TASK_ID) {
-        return `/heartbeat ${userPrompt}`;
+        basePrompt = `/heartbeat ${userPrompt}`;
       } else {
-        return `/cron "${cronContext.taskId}" ${userPrompt}`;
+        basePrompt = `/cron "${cronContext.taskId}" ${userPrompt}`;
       }
     }
 
-    return userPrompt;
+    if (!attachments || attachments.length === 0) {
+      return basePrompt;
+    }
+
+    const lines = attachments.map((attachment, index) => {
+      const fileName = attachment.fileName?.trim() || basename(attachment.path);
+      const caption = attachment.caption?.trim();
+      const details = [
+        `type=${attachment.type}`,
+        `file_name=${fileName}`,
+        `path=${attachment.path}`,
+      ];
+      if (caption) {
+        details.push(`caption=${caption}`);
+      }
+      return `${index + 1}. ${details.join(", ")}`;
+    });
+
+    return `${basePrompt}\n\n<developer>This user message includes local attachments. Use the Read tool to inspect files as needed.\n${lines.join("\n")}</developer>`;
   }
 
   private get sessionFilePath(): string {
@@ -411,5 +444,23 @@ export class Agent implements AgentRuntime {
       }
     }
     return text.trim();
+  }
+
+  private logResultStats(result: SDKResultMessage, requestedModel: string | undefined): void {
+    this.logger.info(
+      {
+        stats: {
+          sessionId: result.session_id,
+          turns: result.num_turns,
+          stopReason: result.stop_reason,
+          durationMs: result.duration_ms,
+          apiDurationMs: result.duration_api_ms,
+          costUsd: result.total_cost_usd,
+          requestedModel: requestedModel ?? null,
+          modelUsage: result.modelUsage,
+        },
+      },
+      "Agent query stats",
+    );
   }
 }

@@ -50,7 +50,7 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
       if (!gateway) {
         throw new Error("Gateway is not initialized.");
       }
-      return gateway.sendProactiveMessage(request);
+      return gateway.sendMessage(request);
     },
   });
   const cronEngine = new CronEngine({
@@ -75,11 +75,7 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
       });
     },
     onResult: async (result) => {
-      // TODO: jiulongw
-      // if (!result.shouldNotify || !gateway) {
-      //   return;
-      // }
-      // await gateway.broadcastProactiveMessage(formatCronProactiveMessage(result));
+      logger.info({ result }, "Cron task result");
     },
   });
   const cronMcpServer = createCronMcpServer(cronEngine);
@@ -156,14 +152,6 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
   }
 
   logger.info("Service stopped");
-}
-
-function formatCronProactiveMessage(result: CronTaskExecutionResult): string {
-  if (result.task.id === HEARTBEAT_TASK_ID) {
-    return `Heartbeat requires attention:\n${result.result}`;
-  }
-
-  return `Cron task "${result.task.name}" finished:\n${result.result}`;
 }
 
 async function runConsole(home: string): Promise<void> {
