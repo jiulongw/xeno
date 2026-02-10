@@ -12,6 +12,7 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import pino from "pino";
 import type { PlatformContext, PlatformType } from "./chat/service";
+import { extractText } from "./chat/stream";
 import { logger } from "./logger";
 
 export interface QueryOptions {
@@ -37,6 +38,77 @@ export interface AgentRuntime {
   getConversationHistory(): Promise<ConversationTurn[]>;
   query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage>;
   abort(): void;
+}
+
+export interface IsolatedQueryOptions {
+  home: string;
+  prompt: string;
+  model?: string;
+  maxTurns?: number;
+  systemPromptAppend?: string;
+  pathToClaudeCodeExecutable?: string;
+  abortController?: AbortController;
+}
+
+export async function runIsolatedQuery(options: IsolatedQueryOptions): Promise<{
+  result: string;
+  durationMs: number;
+}> {
+  const startedAt = Date.now();
+  const abortController = options.abortController ?? new AbortController();
+  const queryOptions: Options = {
+    abortController,
+    cwd: options.home,
+    settingSources: ["project"],
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+    tools: { type: "preset", preset: "claude_code" },
+    systemPrompt: {
+      type: "preset",
+      preset: "claude_code",
+      append: options.systemPromptAppend,
+    },
+    includePartialMessages: true,
+    persistSession: false,
+    model: options.model,
+    maxTurns: options.maxTurns,
+  };
+
+  const executablePath =
+    options.pathToClaudeCodeExecutable ?? process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE;
+  if (executablePath) {
+    queryOptions.pathToClaudeCodeExecutable = executablePath;
+  }
+
+  const stream = query({ prompt: options.prompt, options: queryOptions });
+  let streamed = "";
+  let assistantFinal = "";
+  let resultFallback = "";
+
+  for await (const message of stream) {
+    if (message.type === "stream_event") {
+      streamed += extractText(message);
+      continue;
+    }
+
+    if (message.type === "assistant") {
+      assistantFinal = extractText(message);
+      continue;
+    }
+
+    if (message.type === "result") {
+      const record = message as Record<string, unknown>;
+      const maybeResult = record.result;
+      if (typeof maybeResult === "string") {
+        resultFallback = maybeResult;
+      }
+    }
+  }
+
+  return {
+    result: streamed || assistantFinal || resultFallback,
+    durationMs: Date.now() - startedAt,
+  };
 }
 
 export class Agent implements AgentRuntime {

@@ -17,6 +17,11 @@ import { createHome } from "./home";
 import { GatewayRpcServer } from "./ipc/gateway-rpc";
 import { installLaunchAgent, uninstallLaunchAgent } from "./launch-agent";
 import { logger } from "./logger";
+import { CronEngine, type CronTaskExecutionResult } from "./cron/engine";
+import { createHeartbeatTask } from "./cron/heartbeat";
+import { createCronMcpServer } from "./cron/mcp-server";
+import { CronStore } from "./cron/store";
+import { HEARTBEAT_TASK_ID } from "./cron/types";
 
 function buildServeServices(home: string, config: AppConfig): ChatService[] {
   const services: ChatService[] = [];
@@ -36,18 +41,63 @@ function buildServeServices(home: string, config: AppConfig): ChatService[] {
 
 async function runServe(home: string, config: AppConfig): Promise<void> {
   const agent = new Agent(home);
-  const gateway = new Gateway({
+  const cronStore = new CronStore(home);
+  const heartbeatEnabled = config.heartbeatEnabled ?? true;
+  let gateway: Gateway | null = null;
+  const cronEngine = new CronEngine({
+    home,
+    store: cronStore,
+    heartbeatTask: heartbeatEnabled
+      ? createHeartbeatTask({
+          intervalMinutes: config.heartbeatIntervalMinutes,
+          model: config.heartbeatModel,
+          enabled: heartbeatEnabled,
+        })
+      : undefined,
+    pathToClaudeCodeExecutable: process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE,
+    onResult: async (result) => {
+      if (!result.shouldNotify || !gateway) {
+        return;
+      }
+      await gateway.broadcastProactiveMessage(formatCronProactiveMessage(result));
+    },
+  });
+  const cronMcpServer = createCronMcpServer(cronEngine);
+
+  const gatewayInstance = new Gateway({
     home,
     agent,
     services: buildServeServices(home, config),
+    mcpServers: {
+      "xeno-cron": cronMcpServer,
+    },
   });
+  gateway = gatewayInstance;
   const rpcServer = new GatewayRpcServer({
     home,
-    gateway,
+    gateway: gatewayInstance,
+    runHeartbeat: async () => {
+      const outcome = await cronEngine.runTaskNow(HEARTBEAT_TASK_ID);
+      if (!outcome) {
+        return {
+          ok: false,
+          message: "Heartbeat task is unavailable or disabled.",
+        };
+      }
+
+      return {
+        ok: true,
+        message: "Heartbeat completed.",
+        result: outcome.result,
+        durationMs: outcome.durationMs,
+        notified: outcome.shouldNotify,
+      };
+    },
   });
 
   logger.info({ home }, "Starting service");
-  await gateway.start();
+  await gatewayInstance.start();
+  await cronEngine.start();
   let rpcStarted = false;
 
   try {
@@ -82,10 +132,19 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
     if (rpcStarted) {
       await rpcServer.stop();
     }
-    await gateway.stop();
+    await cronEngine.stop();
+    await gatewayInstance.stop();
   }
 
   logger.info("Service stopped");
+}
+
+function formatCronProactiveMessage(result: CronTaskExecutionResult): string {
+  if (result.task.id === HEARTBEAT_TASK_ID) {
+    return `Heartbeat requires attention:\n${result.result}`;
+  }
+
+  return `Cron task "${result.task.name}" finished:\n${result.result}`;
 }
 
 async function runConsole(home: string): Promise<void> {

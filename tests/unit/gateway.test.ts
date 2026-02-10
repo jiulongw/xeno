@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ChatInboundMessage,
   ChatService,
@@ -209,6 +210,29 @@ describe("Gateway", () => {
       platform: "telegram",
       channelId: "1001",
     });
+  });
+
+  test("passes configured MCP servers to agent queries", async () => {
+    const agent = new EchoMockAgent();
+    const mcpServers: Record<string, McpServerConfig> = {
+      "xeno-cron": {
+        type: "stdio",
+        command: "echo",
+        args: ["ok"],
+      },
+    };
+
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+      mcpServers,
+    });
+    const service = makeQueryService();
+
+    await gateway.submitMessage(service, inbound("hello"));
+
+    expect(agent.calls[0]?.options?.mcpServers).toEqual(mcpServers);
   });
 
   test("broadcasts proactive messages to all services with target metadata", async () => {

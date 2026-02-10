@@ -143,6 +143,16 @@ describe("Gateway RPC integration", () => {
           return { ok: true };
         }
 
+        if (method === "gateway.heartbeat") {
+          return {
+            ok: true,
+            message: "Heartbeat completed.",
+            result: "HEARTBEAT_OK",
+            durationMs: 12,
+            notified: false,
+          };
+        }
+
         if (method === "gateway.query") {
           const requestId = (params as { requestId: string }).requestId;
           queueMicrotask(() => {
@@ -195,5 +205,14 @@ describe("Gateway RPC integration", () => {
     expect(stats).toEqual(["result=success"]);
 
     await client.abort();
+
+    const heartbeat = await client.heartbeat();
+    expect(heartbeat).toEqual({
+      ok: true,
+      message: "Heartbeat completed.",
+      result: "HEARTBEAT_OK",
+      durationMs: 12,
+      notified: false,
+    });
   });
 });

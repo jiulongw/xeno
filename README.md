@@ -2,8 +2,8 @@
 
 Bun CLI app with commands:
 
-- `serve`: start the gateway service (enables configured chat services such as Telegram) and host a Unix socket JSON-RPC endpoint
-- `console`: attach an interactive terminal chat UI to a running gateway via Unix socket JSON-RPC
+- `serve`: start the gateway service (enables configured chat services such as Telegram), start cron scheduling (including heartbeat), and host a Unix socket JSON-RPC endpoint
+- `console`: attach an interactive terminal chat UI to a running gateway via Unix socket JSON-RPC (`/hb` runs heartbeat immediately)
 - `install`: macOS-only command to install and start a LaunchAgent (`cc.novacore.xeno.gateway`) for `xeno serve`, write stdout/stderr logs under `~/.xeno/logs`, and inject Bun's runtime directory into LaunchAgent `PATH`
 - `uninstall`: macOS-only command to stop and remove the LaunchAgent (`cc.novacore.xeno.gateway`)
 
@@ -63,6 +63,17 @@ You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
 - `serve` enables Telegram automatically when a token is available
 - `TELEGRAM_BOT_TOKEN` overrides `telegram_bot_token` from config
 
+## Cron and heartbeat
+
+- `serve` starts a cron engine and exposes cron task management to the agent via MCP server `xeno-cron`
+- Available cron MCP tools: `create_cron_task`, `list_cron_tasks`, `update_cron_task`, `delete_cron_task`
+- Persistent cron tasks are stored at `<home>/.xeno/cron-tasks.json`
+- Built-in heartbeat task:
+  - Reads `HEARTBEAT.md`
+  - Runs every 30 minutes by default
+  - Is runtime-only (not persisted in `cron-tasks.json`)
+  - Can be triggered manually from console with `/hb` or via JSON-RPC `gateway.heartbeat`
+
 ## Config file
 
 Path: `~/.config/xeno/config.json`
@@ -72,9 +83,18 @@ Example:
 ```json
 {
   "default_home": "/tmp/xeno",
-  "telegram_bot_token": "123456:abcdef"
+  "telegram_bot_token": "123456:abcdef",
+  "heartbeat_interval_minutes": 30,
+  "heartbeat_model": "haiku",
+  "heartbeat_enabled": true
 }
 ```
+
+Heartbeat config keys are optional:
+
+- `heartbeat_interval_minutes` (number): interval for built-in heartbeat task
+- `heartbeat_model` (string): model override for heartbeat runs
+- `heartbeat_enabled` (boolean): enable/disable built-in heartbeat task (default `true`)
 
 ## Claude executable override
 

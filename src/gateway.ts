@@ -1,4 +1,5 @@
 import type { AgentRuntime } from "./agent";
+import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { formatMessage } from "./chat/formatter";
 import { ChatServiceRegistry } from "./chat/registry";
 import { extractText, formatStats } from "./chat/stream";
@@ -14,17 +15,20 @@ export interface GatewayConfig {
   home: string;
   agent: AgentRuntime;
   services: ChatService[];
+  mcpServers?: Record<string, McpServerConfig>;
 }
 
 export class Gateway {
   private readonly registry = new ChatServiceRegistry();
   private readonly agent: AgentRuntime;
+  private readonly mcpServers: Record<string, McpServerConfig> | undefined;
 
   private activeQuery = false;
   private shuttingDown = false;
 
   constructor(config: GatewayConfig) {
     this.agent = config.agent;
+    this.mcpServers = config.mcpServers;
 
     for (const service of config.services) {
       this.registry.register(service);
@@ -147,6 +151,7 @@ export class Gateway {
       for await (const message of this.agent.query(inbound.content, {
         includePartialMessages: true,
         platformContext: inbound.context,
+        mcpServers: this.mcpServers,
       })) {
         if (this.shuttingDown) {
           break;

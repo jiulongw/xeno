@@ -74,7 +74,7 @@ export async function runConsoleClient(home: string): Promise<void> {
   const input = new InputRenderable(renderer, {
     id: "chat-input",
     width: "100%",
-    placeholder: "Type a message and press Enter",
+    placeholder: "Type a message and press Enter (/hb to run heartbeat now)",
     backgroundColor: "#1a1b26",
     focusedBackgroundColor: "#1a1b26",
     textColor: "#c0caf5",
@@ -174,6 +174,48 @@ export async function runConsoleClient(home: string): Promise<void> {
       if (!userInput) {
         return;
       }
+
+      if (userInput === "/hb") {
+        if (activeQuery) {
+          addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
+          return;
+        }
+
+        addMessage("user", userInput);
+        input.value = "";
+        const statusMessage = addMessage("agent", "Running heartbeat...");
+        activeQuery = true;
+        abortingQuery = false;
+
+        try {
+          const heartbeat = await rpcClient.heartbeat();
+          const body = heartbeat.result?.trim();
+          statusMessage.content =
+            heartbeat.ok && body
+              ? `[heartbeat]\n${body}`
+              : heartbeat.ok
+                ? heartbeat.message
+                : `Heartbeat unavailable: ${heartbeat.message}`;
+          renderer.requestRender();
+
+          if (heartbeat.ok && typeof heartbeat.durationMs === "number") {
+            const seconds = (heartbeat.durationMs / 1000).toFixed(2);
+            const notifyFlag = heartbeat.notified ? "yes" : "no";
+            addMessage("agent", `[stats] heartbeat duration=${seconds}s | notify=${notifyFlag}`);
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          statusMessage.content = `Error: ${message}`;
+          renderer.requestRender();
+          platformLogger.error({ error }, "Console heartbeat failed");
+        } finally {
+          activeQuery = false;
+          abortingQuery = false;
+        }
+
+        return;
+      }
+
       if (activeQuery) {
         addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
         return;

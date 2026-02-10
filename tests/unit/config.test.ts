@@ -56,6 +56,27 @@ describe("config", () => {
     });
   });
 
+  test("loads optional heartbeat settings", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        heartbeat_interval_minutes: 15,
+        heartbeat_model: "haiku",
+        heartbeat_enabled: false,
+      }),
+      "utf-8",
+    );
+
+    const config = await loadConfigFromPath(configPath);
+    expect(config).toEqual({
+      heartbeatIntervalMinutes: 15,
+      heartbeatModel: "haiku",
+      heartbeatEnabled: false,
+    });
+  });
+
   test("throws on invalid JSON", async () => {
     const dir = await makeTempDir();
     const configPath = join(dir, "config.json");
@@ -70,6 +91,14 @@ describe("config", () => {
     await writeFile(configPath, JSON.stringify({ default_home: 42 }), "utf-8");
 
     await expect(loadConfigFromPath(configPath)).rejects.toThrow('Expected "default_home" in');
+  });
+
+  test("throws when heartbeat_enabled is not a boolean", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    await writeFile(configPath, JSON.stringify({ heartbeat_enabled: "yes" }), "utf-8");
+
+    await expect(loadConfigFromPath(configPath)).rejects.toThrow('Expected "heartbeat_enabled" in');
   });
 
   test("resolveHome prefers --home over config default_home", () => {

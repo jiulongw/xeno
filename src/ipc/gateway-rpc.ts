@@ -26,6 +26,16 @@ type GatewayAbortParams = {
   requestId?: string;
 };
 
+type GatewayHeartbeatParams = Record<string, never>;
+
+export interface GatewayHeartbeatResponse {
+  ok: boolean;
+  message: string;
+  result?: string;
+  durationMs?: number;
+  notified?: boolean;
+}
+
 type StreamNotification = {
   requestId: string;
   content: string;
@@ -49,11 +59,13 @@ type ErrorNotification = {
 export interface GatewayRpcServerOptions {
   home: string;
   gateway: Gateway;
+  runHeartbeat?: () => Promise<GatewayHeartbeatResponse>;
 }
 
 export class GatewayRpcServer {
   private readonly home: string;
   private readonly gateway: Gateway;
+  private readonly runHeartbeat: (() => Promise<GatewayHeartbeatResponse>) | null;
   private readonly socketPath: string;
   private readonly rpcLogger;
 
@@ -63,6 +75,7 @@ export class GatewayRpcServer {
   constructor(options: GatewayRpcServerOptions) {
     this.home = options.home;
     this.gateway = options.gateway;
+    this.runHeartbeat = options.runHeartbeat ?? null;
     this.socketPath = getGatewaySocketPath(options.home);
     this.rpcLogger = logger.child({ component: "gateway-rpc", home: this.home });
   }
@@ -145,6 +158,18 @@ export class GatewayRpcServer {
         this.parseAbortParams(params);
         this.gateway.requestAbort();
         return { ok: true };
+      }
+
+      if (method === "gateway.heartbeat") {
+        this.parseHeartbeatParams(params);
+        if (!this.runHeartbeat) {
+          return {
+            ok: false,
+            message: "Heartbeat trigger is not available in this runtime.",
+          } satisfies GatewayHeartbeatResponse;
+        }
+
+        return this.runHeartbeat();
       }
 
       throw new Error(`Method not found: ${method}`);
@@ -265,6 +290,18 @@ export class GatewayRpcServer {
     };
   }
 
+  private parseHeartbeatParams(value: unknown): GatewayHeartbeatParams {
+    if (value === undefined || value === null) {
+      return {};
+    }
+
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid heartbeat params.");
+    }
+
+    return {};
+  }
+
   private async ensureSocketIsAvailable(): Promise<void> {
     if (!existsSync(this.socketPath)) {
       return;
@@ -376,6 +413,12 @@ export class GatewayRpcClient {
   async abort(): Promise<void> {
     const peer = this.requirePeer();
     await peer.request("gateway.abort", {});
+  }
+
+  async heartbeat(): Promise<GatewayHeartbeatResponse> {
+    const peer = this.requirePeer();
+    const result = await peer.request("gateway.heartbeat", {});
+    return this.parseHeartbeatResponse(result);
   }
 
   close(): void {
@@ -529,6 +572,25 @@ export class GatewayRpcClient {
     return {
       requestId: record.requestId,
       error: record.error,
+    };
+  }
+
+  private parseHeartbeatResponse(value: unknown): GatewayHeartbeatResponse {
+    if (!value || typeof value !== "object") {
+      throw new Error("Invalid heartbeat response.");
+    }
+
+    const record = value as Record<string, unknown>;
+    if (typeof record.ok !== "boolean" || typeof record.message !== "string") {
+      throw new Error("Invalid heartbeat response payload.");
+    }
+
+    return {
+      ok: record.ok,
+      message: record.message,
+      result: typeof record.result === "string" ? record.result : undefined,
+      durationMs: typeof record.durationMs === "number" ? record.durationMs : undefined,
+      notified: typeof record.notified === "boolean" ? record.notified : undefined,
     };
   }
 

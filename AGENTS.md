@@ -10,14 +10,36 @@
 
 - Entry point: `src/index.ts`
 - Commands:
-  - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, graceful shutdown on `Ctrl-C`/`SIGTERM`
-  - `console`: interactive OpenTUI chat UI that attaches to a running `serve` process over JSON-RPC, graceful shutdown on `Ctrl-C`/`SIGTERM` and abort support
+  - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, starts the cron engine, and supports graceful shutdown on `Ctrl-C`/`SIGTERM`
+  - `console`: interactive OpenTUI chat UI that attaches to a running `serve` process over JSON-RPC, supports graceful shutdown on `Ctrl-C`/`SIGTERM`, abort support, and `/hb` to trigger heartbeat immediately
   - `install`: macOS-only command that writes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist` and loads it via `launchctl` to run `xeno serve` (entrypoint resolved from the running program path at install time); stdout/stderr are written to timestamped files under `~/.xeno/logs`; plist `EnvironmentVariables.PATH` includes Bun runtime directory
   - `uninstall`: macOS-only command that unloads and removes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist`
 - `--home <string>` is optional. If omitted, `default_home` from `~/.config/xeno/config.json` is used. The resolved home path is normalized to an absolute path.
 - `serve` enables Telegram chat service automatically when a token is configured:
   - `TELEGRAM_BOT_TOKEN` environment variable (highest precedence)
   - `telegram_bot_token` in `~/.config/xeno/config.json`
+- `serve` also supports heartbeat config from `~/.config/xeno/config.json`:
+  - `heartbeat_interval_minutes` (number, optional)
+  - `heartbeat_model` (string, optional)
+  - `heartbeat_enabled` (boolean, optional; defaults to `true`)
+
+## Cron and heartbeat
+
+- Runtime dependency: `node-cron`
+- Cron engine: `src/cron/engine.ts`
+  - Loads persisted tasks from `<home>/.xeno/cron-tasks.json` via `src/cron/store.ts`
+  - Supports `interval`, `once`, and `cron_expression` schedules
+  - Auto notify mode suppresses proactive notifications when result is `CRON_OK` or `HEARTBEAT_OK`
+- Built-in heartbeat task:
+  - Factory: `src/cron/heartbeat.ts`
+  - Task ID: `__heartbeat__`
+  - Runtime-only (not persisted to cron store)
+  - Triggered on schedule, from console `/hb`, or over RPC `gateway.heartbeat`
+- MCP integration:
+  - `serve` registers MCP server `xeno-cron` on the gateway (`src/cron/mcp-server.ts`)
+  - Tools: `create_cron_task`, `list_cron_tasks`, `update_cron_task`, `delete_cron_task`
+- IPC:
+  - `src/ipc/gateway-rpc.ts` supports `gateway.heartbeat` request/response
 
 ## Home initialization
 

@@ -26,6 +26,7 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.37",
     "@opentui/core": "^0.1.77",
     "grammy": "^1.40.0",
+    "node-cron": "^4.2.1",
     "pino": "^10.3.0"
   }
 }

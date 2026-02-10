@@ -6,6 +6,9 @@ import { join, resolve } from "node:path";
 export interface AppConfig {
   defaultHome?: string;
   telegramBotToken?: string;
+  heartbeatIntervalMinutes?: number;
+  heartbeatModel?: string;
+  heartbeatEnabled?: boolean;
 }
 
 export function getConfigPath(baseHome: string = homedir()): string {
@@ -40,10 +43,20 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
   const record = parsed as Record<string, unknown>;
   const defaultHome = readOptionalString(record, "default_home", configPath);
   const telegramBotToken = readOptionalString(record, "telegram_bot_token", configPath);
+  const heartbeatIntervalMinutes = readOptionalNumber(
+    record,
+    "heartbeat_interval_minutes",
+    configPath,
+  );
+  const heartbeatModel = readOptionalString(record, "heartbeat_model", configPath);
+  const heartbeatEnabled = readOptionalBoolean(record, "heartbeat_enabled", configPath);
 
   return {
     defaultHome: defaultHome?.trim() || undefined,
     telegramBotToken: telegramBotToken?.trim() || undefined,
+    heartbeatIntervalMinutes,
+    heartbeatModel: heartbeatModel?.trim() || undefined,
+    heartbeatEnabled,
   };
 }
 
@@ -88,6 +101,40 @@ function readOptionalString(
 
   if (typeof value !== "string") {
     throw new Error(`Expected "${key}" in ${configPath} to be a string.`);
+  }
+
+  return value;
+}
+
+function readOptionalNumber(
+  source: Record<string, unknown>,
+  key: string,
+  configPath: string,
+): number | undefined {
+  const value = source[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Expected "${key}" in ${configPath} to be a number.`);
+  }
+
+  return value;
+}
+
+function readOptionalBoolean(
+  source: Record<string, unknown>,
+  key: string,
+  configPath: string,
+): boolean | undefined {
+  const value = source[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (typeof value !== "boolean") {
+    throw new Error(`Expected "${key}" in ${configPath} to be a boolean.`);
   }
 
   return value;
