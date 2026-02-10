@@ -150,10 +150,7 @@ export class TelegramPlatform implements ChatService {
 
       const targetChatId = this.parseChatId(target.channelId);
       if (targetChatId === null) {
-        this.platformLogger.warn(
-          { target },
-          "Skipping proactive Telegram message: invalid chat ID",
-        );
+        this.platformLogger.warn({ target }, "Skipping Telegram message: invalid chat ID");
         return;
       }
 

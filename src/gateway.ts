@@ -1,4 +1,4 @@
-import type { AgentRuntime } from "./agent";
+import type { AgentRuntime, CronContext } from "./agent";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import { formatMessage } from "./chat/formatter";
 import { ChatServiceRegistry } from "./chat/registry";
@@ -16,6 +16,30 @@ export interface GatewayConfig {
   agent: AgentRuntime;
   services: ChatService[];
   mcpServers?: Record<string, McpServerConfig>;
+}
+
+export interface GatewayCronQueryRequest {
+  taskId: string;
+  prompt: string;
+  model?: string;
+  abortSignal?: AbortSignal;
+  mcpServers?: Record<string, McpServerConfig>;
+}
+
+export interface GatewayCronQueryResult {
+  result: string;
+  durationMs: number;
+}
+
+export interface SendMessageRequest {
+  content: string;
+  target?: OutboundMessageTarget;
+}
+
+export interface SendMessageResult {
+  delivered: boolean;
+  target?: OutboundMessageTarget;
+  reason?: string;
 }
 
 export class Gateway {
@@ -72,6 +96,68 @@ export class Gateway {
     this.abortActiveQuery();
   }
 
+  async runCronQuery(request: GatewayCronQueryRequest): Promise<GatewayCronQueryResult> {
+    if (this.shuttingDown) {
+      throw new Error("Gateway is shutting down.");
+    }
+
+    if (request.abortSignal?.aborted) {
+      throw new Error("Cron query aborted.");
+    }
+
+    await this.waitForActiveQueryToFinish(request.abortSignal);
+
+    this.activeQuery = true;
+    const startedAt = Date.now();
+    let streamed = "";
+    let fallbackFinal = "";
+
+    const cronContext: CronContext = {
+      taskId: request.taskId,
+      model: request.model,
+    };
+    const cronMcpServers = mergeMcpServers(this.mcpServers, request.mcpServers);
+    const onAbort = () => {
+      this.agent.abort();
+    };
+    request.abortSignal?.addEventListener("abort", onAbort, { once: true });
+
+    try {
+      for await (const message of this.agent.query(request.prompt, {
+        includePartialMessages: true,
+        mcpServers: cronMcpServers,
+        cronContext,
+      })) {
+        if (this.shuttingDown) {
+          break;
+        }
+
+        if (message.type === "stream_event") {
+          const delta = extractText(message);
+          if (delta) {
+            streamed += delta;
+          }
+          continue;
+        }
+
+        if (message.type === "assistant") {
+          const text = extractText(message);
+          if (text) {
+            fallbackFinal = text;
+          }
+        }
+      }
+    } finally {
+      request.abortSignal?.removeEventListener("abort", onAbort);
+      this.activeQuery = false;
+    }
+
+    return {
+      result: streamed || fallbackFinal || "[No response]",
+      durationMs: Date.now() - startedAt,
+    };
+  }
+
   getSessionId(): string | null {
     return this.agent.getSessionId();
   }
@@ -81,11 +167,26 @@ export class Gateway {
   }
 
   async broadcastProactiveMessage(content: string): Promise<void> {
-    const target = this.resolveLastChannelTarget();
-    if (!target) {
-      logger.warn("Skipped proactive broadcast because no last channel is known");
-      return;
+    await this.sendProactiveMessage({ content });
+  }
+
+  async sendProactiveMessage(request: SendMessageRequest): Promise<SendMessageResult> {
+    const targetResolution = this.resolveProactiveTarget(request.target);
+    if (!targetResolution.target) {
+      logger.warn(
+        {
+          target: request.target,
+          reason: targetResolution.reason,
+        },
+        "Skipped proactive broadcast because target could not be resolved",
+      );
+      return {
+        delivered: false,
+        reason: targetResolution.reason,
+      };
     }
+
+    const target = targetResolution.target;
 
     const options: OutboundMessageOptions = {
       reason: "proactive",
@@ -94,7 +195,7 @@ export class Gateway {
     const services = this.registry.list();
     const results = await Promise.allSettled(
       services.map(async (service) => {
-        await service.sendMessage(content, false, options);
+        await service.sendMessage(request.content, false, options);
       }),
     );
 
@@ -103,10 +204,15 @@ export class Gateway {
         const service = services[index];
         logger.error(
           { error: result.reason, service: service?.type, target },
-          "Failed proactive message delivery",
+          "Failed message delivery",
         );
       }
     }
+
+    return {
+      delivered: true,
+      target,
+    };
   }
 
   submitMessage(service: QueryService, inbound: ChatInboundMessage): Promise<void> {
@@ -222,6 +328,68 @@ export class Gateway {
       channelId: lastChannel.channelId,
     };
   }
+
+  private resolveProactiveTarget(targetOverride: OutboundMessageTarget | undefined): {
+    target: OutboundMessageTarget | null;
+    reason?: string;
+  } {
+    if (targetOverride) {
+      const channelId = targetOverride.channelId.trim();
+      if (!channelId) {
+        return {
+          target: null,
+          reason: "target.channelId must be a non-empty string.",
+        };
+      }
+      return {
+        target: {
+          platform: targetOverride.platform,
+          channelId,
+        },
+      };
+    }
+
+    const target = this.resolveLastChannelTarget();
+    if (!target) {
+      return {
+        target: null,
+        reason: "No last channel is known yet.",
+      };
+    }
+
+    return { target };
+  }
+
+  private async waitForActiveQueryToFinish(abortSignal?: AbortSignal): Promise<void> {
+    while (this.activeQuery) {
+      if (this.shuttingDown) {
+        throw new Error("Gateway is shutting down.");
+      }
+      if (abortSignal?.aborted) {
+        throw new Error("Cron query aborted.");
+      }
+
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 50);
+      });
+    }
+  }
 }
 
 type QueryService = Pick<ChatService, "type" | "capabilities" | "sendMessage" | "sendStats">;
+
+function mergeMcpServers(
+  base: Record<string, McpServerConfig> | undefined,
+  extra: Record<string, McpServerConfig> | undefined,
+): Record<string, McpServerConfig> | undefined {
+  if (!base && !extra) {
+    return undefined;
+  }
+  if (!base) {
+    return extra;
+  }
+  if (!extra) {
+    return base;
+  }
+  return { ...base, ...extra };
+}

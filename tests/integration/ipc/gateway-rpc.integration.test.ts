@@ -149,7 +149,6 @@ describe("Gateway RPC integration", () => {
             message: "Heartbeat completed.",
             result: "HEARTBEAT_OK",
             durationMs: 12,
-            notified: false,
           };
         }
 
@@ -212,7 +211,6 @@ describe("Gateway RPC integration", () => {
       message: "Heartbeat completed.",
       result: "HEARTBEAT_OK",
       durationMs: 12,
-      notified: false,
     });
   });
 });

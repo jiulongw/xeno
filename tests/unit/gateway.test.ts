@@ -235,7 +235,44 @@ describe("Gateway", () => {
     expect(agent.calls[0]?.options?.mcpServers).toEqual(mcpServers);
   });
 
-  test("broadcasts proactive messages to all services with target metadata", async () => {
+  test("merges cron query MCP servers with gateway MCP servers", async () => {
+    const agent = new EchoMockAgent();
+    const baseMcpServers: Record<string, McpServerConfig> = {
+      "xeno-cron": {
+        type: "stdio",
+        command: "echo",
+        args: ["cron"],
+      },
+    };
+    const cronOnlyMcpServers: Record<string, McpServerConfig> = {
+      "xeno-messenger": {
+        type: "stdio",
+        command: "echo",
+        args: ["notify"],
+      },
+    };
+
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+      mcpServers: baseMcpServers,
+    });
+
+    const result = await gateway.runCronQuery({
+      taskId: "task-1",
+      prompt: "hello from cron",
+      mcpServers: cronOnlyMcpServers,
+    });
+
+    expect(result.result).toBe("hello from cron");
+    expect(agent.calls[0]?.options?.mcpServers).toEqual({
+      ...baseMcpServers,
+      ...cronOnlyMcpServers,
+    });
+  });
+
+  test("broadcasts messages to all services with target metadata", async () => {
     const agent = new EchoMockAgent();
     agent.updateLastChannel({
       type: "telegram",
@@ -298,5 +335,81 @@ describe("Gateway", () => {
         },
       },
     ]);
+  });
+
+  test("uses provided target when send request includes target", async () => {
+    const agent = new EchoMockAgent();
+    agent.updateLastChannel({
+      type: "telegram",
+      channelId: "1001",
+    });
+    const deliveries: MessageRecord[] = [];
+    const service: ChatService = {
+      type: "telegram",
+      capabilities: {
+        supportsStreaming: true,
+        supportsMarkdownTables: false,
+      },
+      start: async () => undefined,
+      stop: async () => undefined,
+      onUserMessage: () => undefined,
+      sendMessage: async (content, isPartial, options) => {
+        deliveries.push({ content, isPartial, options });
+      },
+      sendStats: async () => undefined,
+    };
+
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [service],
+    });
+
+    const outcome = await gateway.sendProactiveMessage({
+      content: "attention",
+      target: {
+        platform: "telegram",
+        channelId: "2002",
+      },
+    });
+
+    expect(outcome).toEqual({
+      delivered: true,
+      target: {
+        platform: "telegram",
+        channelId: "2002",
+      },
+    });
+    expect(deliveries).toEqual([
+      {
+        content: "attention",
+        isPartial: false,
+        options: {
+          reason: "proactive",
+          target: {
+            platform: "telegram",
+            channelId: "2002",
+          },
+        },
+      },
+    ]);
+  });
+
+  test("reports not delivered for sends when no channel is available", async () => {
+    const agent = new EchoMockAgent();
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+
+    const outcome = await gateway.sendProactiveMessage({
+      content: "attention",
+    });
+
+    expect(outcome).toEqual({
+      delivered: false,
+      reason: "No last channel is known yet.",
+    });
   });
 });

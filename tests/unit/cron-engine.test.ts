@@ -3,10 +3,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { CronEngine, type CronTaskExecutionResult } from "../../src/cron/engine";
+import {
+  CronEngine,
+  type CronQueryRequest,
+  type CronTaskExecutionResult,
+} from "../../src/cron/engine";
 import { createHeartbeatTask } from "../../src/cron/heartbeat";
 import { CronStore } from "../../src/cron/store";
-import type { IsolatedQueryOptions } from "../../src/agent";
 import { HEARTBEAT_TASK_ID } from "../../src/cron/types";
 
 const tempDirs: string[] = [];
@@ -48,7 +51,7 @@ describe("CronEngine", () => {
     });
 
     const events: CronTaskExecutionResult[] = [];
-    const queryCalls: IsolatedQueryOptions[] = [];
+    const queryCalls: CronQueryRequest[] = [];
     const engine = new CronEngine({
       home,
       store,
@@ -67,7 +70,6 @@ describe("CronEngine", () => {
 
     expect(queryCalls.length).toBe(1);
     expect(events.length).toBe(1);
-    expect(events[0]?.shouldNotify).toBe(false);
 
     const runtimeTask = engine.listTasks().find((task) => task.id === "once-task");
     expect(runtimeTask?.enabled).toBe(false);
@@ -158,11 +160,11 @@ describe("CronEngine", () => {
 
     const updated = await engine.updateTask(created.id, {
       enabled: false,
-      notify: "always",
+      notify: "auto",
       model: null,
     });
     expect(updated?.enabled).toBe(false);
-    expect(updated?.notify).toBe("always");
+    expect(updated?.notify).toBe("auto");
     expect(updated?.model).toBeUndefined();
 
     const removed = await engine.deleteTask(created.id);
@@ -192,6 +194,5 @@ describe("CronEngine", () => {
     expect(outcome).not.toBeNull();
     expect(outcome?.task.id).toBe(HEARTBEAT_TASK_ID);
     expect(outcome?.result).toBe("HEARTBEAT_OK");
-    expect(outcome?.shouldNotify).toBe(false);
   });
 });

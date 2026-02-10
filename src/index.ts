@@ -19,9 +19,10 @@ import { installLaunchAgent, uninstallLaunchAgent } from "./launch-agent";
 import { logger } from "./logger";
 import { CronEngine, type CronTaskExecutionResult } from "./cron/engine";
 import { createHeartbeatTask } from "./cron/heartbeat";
-import { createCronMcpServer } from "./cron/mcp-server";
 import { CronStore } from "./cron/store";
 import { HEARTBEAT_TASK_ID } from "./cron/types";
+import { createCronMcpServer } from "./mcp/cron";
+import { createMessengerMcpServer } from "./mcp/messenger";
 
 function buildServeServices(home: string, config: AppConfig): ChatService[] {
   const services: ChatService[] = [];
@@ -44,6 +45,14 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
   const cronStore = new CronStore(home);
   const heartbeatEnabled = config.heartbeatEnabled ?? true;
   let gateway: Gateway | null = null;
+  const messengerMcpServer = createMessengerMcpServer({
+    sendMessage: async (request) => {
+      if (!gateway) {
+        throw new Error("Gateway is not initialized.");
+      }
+      return gateway.sendProactiveMessage(request);
+    },
+  });
   const cronEngine = new CronEngine({
     home,
     store: cronStore,
@@ -54,12 +63,23 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
           enabled: heartbeatEnabled,
         })
       : undefined,
-    pathToClaudeCodeExecutable: process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE,
-    onResult: async (result) => {
-      if (!result.shouldNotify || !gateway) {
-        return;
+    queryRunner: async (request) => {
+      if (!gateway) {
+        throw new Error("Gateway is not initialized.");
       }
-      await gateway.broadcastProactiveMessage(formatCronProactiveMessage(result));
+      return gateway.runCronQuery({
+        ...request,
+        mcpServers: {
+          "xeno-messenger": messengerMcpServer,
+        },
+      });
+    },
+    onResult: async (result) => {
+      // TODO: jiulongw
+      // if (!result.shouldNotify || !gateway) {
+      //   return;
+      // }
+      // await gateway.broadcastProactiveMessage(formatCronProactiveMessage(result));
     },
   });
   const cronMcpServer = createCronMcpServer(cronEngine);
@@ -90,7 +110,6 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
         message: "Heartbeat completed.",
         result: outcome.result,
         durationMs: outcome.durationMs,
-        notified: outcome.shouldNotify,
       };
     },
   });

@@ -29,17 +29,21 @@
 - Cron engine: `src/cron/engine.ts`
   - Loads persisted tasks from `<home>/.xeno/cron-tasks.json` via `src/cron/store.ts`
   - Supports `interval`, `once`, and `cron_expression` schedules
-  - Auto notify mode suppresses proactive notifications when result is `CRON_OK` or `HEARTBEAT_OK`
+  - `notify` supports `auto` and `never` (`always` is not supported)
+  - Cron runs are executed via `Gateway.runCronQuery` and prompt-prefixed as `/cron "<task_id>"`
+  - `runServe` currently does not auto-broadcast cron completion results in `onResult`
 - Built-in heartbeat task:
   - Factory: `src/cron/heartbeat.ts`
   - Task ID: `__heartbeat__`
+  - Uses `/heartbeat` prompt prefix at runtime
   - Runtime-only (not persisted to cron store)
   - Triggered on schedule, from console `/hb`, or over RPC `gateway.heartbeat`
 - MCP integration:
-  - `serve` registers MCP server `xeno-cron` on the gateway (`src/cron/mcp-server.ts`)
+  - `serve` registers MCP server `xeno-cron` on the gateway (`src/mcp/cron.ts`)
   - Tools: `create_cron_task`, `list_cron_tasks`, `update_cron_task`, `delete_cron_task`
+  - Cron runs receive MCP server `xeno-messenger` (`src/mcp/messenger.ts`) with tool `send_message`
 - IPC:
-  - `src/ipc/gateway-rpc.ts` supports `gateway.heartbeat` request/response
+  - `src/ipc/gateway-rpc.ts` supports `gateway.heartbeat` request/response (`ok`, `message`, optional `result`, optional `durationMs`)
 
 ## Home initialization
 

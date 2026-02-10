@@ -237,10 +237,7 @@ export class ConsolePlatform implements ChatService {
       options.target.platform !== this.type
     ) {
       if (!isPartial) {
-        this.addMessage(
-          "agent",
-          `Proactive message sent to ${this.formatOutboundTarget(options.target)}.`,
-        );
+        this.addMessage("agent", `Message sent to ${this.formatOutboundTarget(options.target)}.`);
       }
       return;
     }

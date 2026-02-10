@@ -5,20 +5,25 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type {
   SDKMessage,
   SDKSystemMessage,
-  HookInput,
   HookCallbackMatcher,
   Options,
   McpServerConfig,
 } from "@anthropic-ai/claude-agent-sdk";
 import pino from "pino";
 import type { PlatformContext, PlatformType } from "./chat/service";
-import { extractText } from "./chat/stream";
 import { logger } from "./logger";
+import { HEARTBEAT_TASK_ID } from "./cron/types";
 
 export interface QueryOptions {
   includePartialMessages?: boolean;
   mcpServers?: Record<string, McpServerConfig>;
   platformContext?: PlatformContext;
+  cronContext?: CronContext;
+}
+
+export interface CronContext {
+  taskId: string;
+  model?: string;
 }
 
 export interface ConversationTurn {
@@ -38,77 +43,6 @@ export interface AgentRuntime {
   getConversationHistory(): Promise<ConversationTurn[]>;
   query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage>;
   abort(): void;
-}
-
-export interface IsolatedQueryOptions {
-  home: string;
-  prompt: string;
-  model?: string;
-  maxTurns?: number;
-  systemPromptAppend?: string;
-  pathToClaudeCodeExecutable?: string;
-  abortController?: AbortController;
-}
-
-export async function runIsolatedQuery(options: IsolatedQueryOptions): Promise<{
-  result: string;
-  durationMs: number;
-}> {
-  const startedAt = Date.now();
-  const abortController = options.abortController ?? new AbortController();
-  const queryOptions: Options = {
-    abortController,
-    cwd: options.home,
-    settingSources: ["project"],
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
-    tools: { type: "preset", preset: "claude_code" },
-    systemPrompt: {
-      type: "preset",
-      preset: "claude_code",
-      append: options.systemPromptAppend,
-    },
-    includePartialMessages: true,
-    persistSession: false,
-    model: options.model,
-    maxTurns: options.maxTurns,
-  };
-
-  const executablePath =
-    options.pathToClaudeCodeExecutable ?? process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE;
-  if (executablePath) {
-    queryOptions.pathToClaudeCodeExecutable = executablePath;
-  }
-
-  const stream = query({ prompt: options.prompt, options: queryOptions });
-  let streamed = "";
-  let assistantFinal = "";
-  let resultFallback = "";
-
-  for await (const message of stream) {
-    if (message.type === "stream_event") {
-      streamed += extractText(message);
-      continue;
-    }
-
-    if (message.type === "assistant") {
-      assistantFinal = extractText(message);
-      continue;
-    }
-
-    if (message.type === "result") {
-      const record = message as Record<string, unknown>;
-      const maybeResult = record.result;
-      if (typeof maybeResult === "string") {
-        resultFallback = maybeResult;
-      }
-    }
-  }
-
-  return {
-    result: streamed || assistantFinal || resultFallback,
-    durationMs: Date.now() - startedAt,
-  };
 }
 
 export class Agent implements AgentRuntime {
@@ -224,14 +158,10 @@ export class Agent implements AgentRuntime {
   async *query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage> {
     this.abortController = new AbortController();
     const sessionId = this.sessionId;
-    const { includePartialMessages, mcpServers, platformContext } = options || {};
+    const { includePartialMessages, mcpServers, platformContext, cronContext } = options || {};
 
     const preCompactHook: HookCallbackMatcher = {
-      hooks: [
-        async (input: HookInput) => {
-          return this.preCompactHook(input, platformContext);
-        },
-      ],
+      hooks: [this.preCompactHook],
     };
 
     const queryOptions: Options = {
@@ -252,6 +182,10 @@ export class Agent implements AgentRuntime {
       queryOptions.pathToClaudeCodeExecutable = this.pathToClaudeCodeExecutable;
     }
 
+    if (cronContext && cronContext.model) {
+      queryOptions.model = cronContext.model;
+    }
+
     if (sessionId) {
       queryOptions.resume = sessionId;
       this.logger.info("Resuming session: %s", sessionId);
@@ -259,7 +193,8 @@ export class Agent implements AgentRuntime {
       this.logger.info("Starting new session");
     }
 
-    const stream = query({ prompt: userPrompt, options: queryOptions });
+    const prompt = this.augmentPrompt(userPrompt, { platformContext, cronContext });
+    const stream = query({ prompt, options: queryOptions });
 
     try {
       for await (const message of stream) {
@@ -284,39 +219,35 @@ export class Agent implements AgentRuntime {
     }
   }
 
-  private async preCompactHook(_input: HookInput, platformContext?: PlatformContext) {
-    this.logger.info({ platformContext }, "PreCompact hook triggered");
+  private async preCompactHook() {
+    this.logger.info("PreCompact hook triggered");
 
-    const platformNote = this.getPlatformSystemMessage(platformContext);
     return {
-      systemMessage: [
+      systemMessage:
         "The session is about to be compacted (summarized). Now it is a good time to reflect and update your long-term memory.",
-        platformNote,
-      ]
-        .filter((part) => part.length > 0)
-        .join("\n\n"),
     };
   }
 
-  private getPlatformSystemMessage(platformContext?: PlatformContext): string {
-    if (!platformContext) {
-      return "";
+  private augmentPrompt(
+    userPrompt: string,
+    {
+      platformContext,
+      cronContext,
+    }: { platformContext?: PlatformContext; cronContext?: CronContext },
+  ): string {
+    if (platformContext) {
+      return `<developer>message from ${platformContext.type}</developer>\n\n${userPrompt}`;
     }
 
-    const serializedContext = JSON.stringify(platformContext);
-    const formattingHint = this.getPlatformFormattingHint(platformContext.type);
-
-    return [`Platform context: ${serializedContext}.`, formattingHint]
-      .filter((part) => part.length > 0)
-      .join("\n");
-  }
-
-  private getPlatformFormattingHint(type: PlatformContext["type"]): string {
-    if (type === "telegram" || type === "discord" || type === "slack") {
-      return "Formatting hint: Avoid markdown tables. Prefer concise bullet lists.";
+    if (cronContext) {
+      if (cronContext.taskId === HEARTBEAT_TASK_ID) {
+        return `/heartbeat ${userPrompt}`;
+      } else {
+        return `/cron "${cronContext.taskId}" ${userPrompt}`;
+      }
     }
 
-    return "";
+    return userPrompt;
   }
 
   private get sessionFilePath(): string {

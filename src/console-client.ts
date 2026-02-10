@@ -200,8 +200,7 @@ export async function runConsoleClient(home: string): Promise<void> {
 
           if (heartbeat.ok && typeof heartbeat.durationMs === "number") {
             const seconds = (heartbeat.durationMs / 1000).toFixed(2);
-            const notifyFlag = heartbeat.notified ? "yes" : "no";
-            addMessage("agent", `[stats] heartbeat duration=${seconds}s | notify=${notifyFlag}`);
+            addMessage("agent", `[stats] heartbeat duration=${seconds}s`);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);

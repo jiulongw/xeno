@@ -33,7 +33,6 @@ export interface GatewayHeartbeatResponse {
   message: string;
   result?: string;
   durationMs?: number;
-  notified?: boolean;
 }
 
 type StreamNotification = {
@@ -590,7 +589,6 @@ export class GatewayRpcClient {
       message: record.message,
       result: typeof record.result === "string" ? record.result : undefined,
       durationMs: typeof record.durationMs === "number" ? record.durationMs : undefined,
-      notified: typeof record.notified === "boolean" ? record.notified : undefined,
     };
   }
 

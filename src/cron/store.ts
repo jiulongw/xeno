@@ -219,7 +219,7 @@ function cloneSchedule(schedule: CronSchedule): CronSchedule {
 }
 
 function parseNotifyMode(value: unknown): CronTask["notify"] | null {
-  if (value === "auto" || value === "always" || value === "never") {
+  if (value === "auto" || value === "never") {
     return value;
   }
   return null;

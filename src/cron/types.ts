@@ -3,7 +3,7 @@ export type CronSchedule =
   | { type: "once"; runAt: string }
   | { type: "cron_expression"; cronExpression: string };
 
-export type CronNotifyMode = "auto" | "always" | "never";
+export type CronNotifyMode = "auto" | "never";
 
 export interface CronTask {
   id: string;
@@ -43,6 +43,4 @@ export const CRON_DEFAULT_MODEL = "haiku";
 export const CRON_DEFAULT_NOTIFY_MODE: CronNotifyMode = "auto";
 export const CRON_DEFAULT_MAX_TURNS = 10;
 
-export const CRON_SENTINEL_OK = "CRON_OK";
-export const HEARTBEAT_SENTINEL_OK = "HEARTBEAT_OK";
 export const HEARTBEAT_TASK_ID = "__heartbeat__";

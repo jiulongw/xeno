@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
 import cron, { type ScheduledTask } from "node-cron";
-import { runIsolatedQuery } from "../agent";
 import { logger } from "../logger";
 import { CronStore } from "./store";
 import {
   CRON_DEFAULT_MAX_TURNS,
   CRON_DEFAULT_MODEL,
   CRON_DEFAULT_NOTIFY_MODE,
-  CRON_SENTINEL_OK,
-  HEARTBEAT_SENTINEL_OK,
   HEARTBEAT_TASK_ID,
   type CronSchedule,
   type CronTask,
@@ -23,16 +20,26 @@ export interface CronTaskExecutionResult {
   result: string;
   durationMs: number;
   isError: boolean;
-  shouldNotify: boolean;
 }
 
-type QueryRunner = typeof runIsolatedQuery;
+export interface CronQueryRequest {
+  taskId: string;
+  prompt: string;
+  model: string;
+  abortSignal: AbortSignal;
+}
+
+export interface CronQueryResult {
+  result: string;
+  durationMs: number;
+}
+
+type QueryRunner = (request: CronQueryRequest) => Promise<CronQueryResult>;
 
 type CronEngineOptions = {
   home: string;
   store: CronStore;
   heartbeatTask?: CronTask;
-  pathToClaudeCodeExecutable?: string;
   onResult?: (result: CronTaskExecutionResult) => Promise<void> | void;
   queryRunner?: QueryRunner;
 };
@@ -45,7 +52,6 @@ export class CronEngine {
   private readonly home: string;
   private readonly store: CronStore;
   private readonly heartbeatTask: CronTask | null;
-  private readonly pathToClaudeCodeExecutable: string | undefined;
   private readonly onResult:
     | ((result: CronTaskExecutionResult) => Promise<void> | void)
     | undefined;
@@ -70,9 +76,8 @@ export class CronEngine {
     this.home = options.home;
     this.store = options.store;
     this.heartbeatTask = options.heartbeatTask ? cloneTask(options.heartbeatTask) : null;
-    this.pathToClaudeCodeExecutable = options.pathToClaudeCodeExecutable;
     this.onResult = options.onResult;
-    this.queryRunner = options.queryRunner ?? runIsolatedQuery;
+    this.queryRunner = options.queryRunner ?? defaultQueryRunner;
     this.engineLogger = logger.child({ component: "cron-engine", home: this.home });
   }
 
@@ -383,12 +388,10 @@ export class CronEngine {
 
     try {
       const runResult = await this.queryRunner({
-        home: this.home,
+        taskId: task.id,
         prompt: task.prompt,
         model: task.model ?? CRON_DEFAULT_MODEL,
-        maxTurns: task.maxTurns ?? CRON_DEFAULT_MAX_TURNS,
-        pathToClaudeCodeExecutable: this.pathToClaudeCodeExecutable,
-        abortController,
+        abortSignal: abortController.signal,
       });
       result = runResult.result;
       durationMs = runResult.durationMs;
@@ -433,13 +436,11 @@ export class CronEngine {
       return;
     }
 
-    const shouldNotify = this.shouldNotify(updatedTask.notify ?? CRON_DEFAULT_NOTIFY_MODE, result);
     const payload: CronTaskExecutionResult = {
       task: updatedTask,
       result,
       durationMs,
       isError,
-      shouldNotify,
     };
 
     this.engineLogger.info(
@@ -447,7 +448,6 @@ export class CronEngine {
         taskId: updatedTask.id,
         taskName: updatedTask.name,
         durationMs,
-        shouldNotify,
       },
       "Cron task finished",
     );
@@ -461,18 +461,6 @@ export class CronEngine {
     }
 
     this.resolveCompletionWaiters(updatedTask.id, payload);
-  }
-
-  private shouldNotify(mode: CronTask["notify"], result: string): boolean {
-    if (mode === "never") {
-      return false;
-    }
-    if (mode === "always") {
-      return true;
-    }
-
-    const normalized = stripCodeFence(result).trim();
-    return normalized !== CRON_SENTINEL_OK && normalized !== HEARTBEAT_SENTINEL_OK;
   }
 
   private removePendingTriggers(taskId: string): void {
@@ -643,7 +631,7 @@ function normalizePositiveInteger(value: number | undefined, field: string): num
 }
 
 function validateNotifyMode(mode: CronTask["notify"]): void {
-  if (mode === "auto" || mode === "always" || mode === "never") {
+  if (mode === "auto" || mode === "never") {
     return;
   }
   throw new Error(`Invalid notify mode: ${String(mode)}`);
@@ -670,4 +658,8 @@ function cloneSchedule(schedule: CronSchedule): CronSchedule {
     return { type: "once", runAt: schedule.runAt };
   }
   return { type: "cron_expression", cronExpression: schedule.cronExpression };
+}
+
+async function defaultQueryRunner(): Promise<CronQueryResult> {
+  throw new Error("Cron query runner is not configured.");
 }

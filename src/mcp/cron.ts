@@ -1,7 +1,7 @@
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod/v4";
-import type { CronTask, CronTaskUpdateInput } from "./types";
-import { CronEngine } from "./engine";
+import type { CronTask, CronTaskUpdateInput } from "../cron/types";
+import { CronEngine } from "../cron/engine";
 
 export function createCronMcpServer(engine: CronEngine) {
   return createSdkMcpServer({
@@ -18,7 +18,7 @@ export function createCronMcpServer(engine: CronEngine) {
           run_at: z.string().min(1).optional(),
           cron_expression: z.string().min(1).optional(),
           model: z.string().min(1).optional(),
-          notify: z.enum(["auto", "always", "never"]).optional(),
+          notify: z.enum(["auto", "never"]).optional(),
           max_turns: z.number().int().positive().optional(),
           enabled: z.boolean().optional(),
         },
@@ -75,7 +75,7 @@ export function createCronMcpServer(engine: CronEngine) {
           run_at: z.string().min(1).optional(),
           cron_expression: z.string().min(1).optional(),
           model: z.union([z.string().min(1), z.null()]).optional(),
-          notify: z.enum(["auto", "always", "never"]).optional(),
+          notify: z.enum(["auto", "never"]).optional(),
           max_turns: z.union([z.number().int().positive(), z.null()]).optional(),
           enabled: z.boolean().optional(),
         },
