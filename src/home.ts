@@ -11,6 +11,7 @@ import soulTemplate from "../template/SOUL.md" with { type: "text" };
 import toolsTemplate from "../template/TOOLS.md" with { type: "text" };
 import userTemplate from "../template/USER.md" with { type: "text" };
 import claudeSettingsTemplate from "../template/claude.settings.json";
+import heartbeatSkill from "../template/skills/heartbeat/SKILL.md" with { type: "text" };
 
 type TemplateFile = {
   relativePath: string;
@@ -28,8 +29,9 @@ const TEMPLATE_FILES: TemplateFile[] = [
   { relativePath: "USER.md", content: userTemplate },
   {
     relativePath: ".claude/settings.local.json",
-    content: `${JSON.stringify(claudeSettingsTemplate, null, 2)}\n`,
+    content: JSON.stringify(claudeSettingsTemplate, null, 2) + "\n",
   },
+  { relativePath: ".claude/skills/heartbeat/SKILL.md", content: heartbeatSkill },
 ];
 
 export async function createHome(homeDir: string): Promise<void> {
