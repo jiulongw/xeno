@@ -3,7 +3,7 @@
 Bun CLI app with commands:
 
 - `serve`: start the gateway service (enables configured chat services such as Telegram), start cron scheduling (including heartbeat), and host a Unix socket JSON-RPC endpoint
-- `console`: attach an interactive terminal chat UI to a running gateway via Unix socket JSON-RPC (`/hb` runs heartbeat immediately)
+- `console`: attach a simple interactive terminal chat console to a running gateway via Unix socket JSON-RPC, with a bottom input prompt (`/hb` runs heartbeat immediately)
 - `install`: macOS-only command to install and start a LaunchAgent (`cc.novacore.xeno.gateway`) for `xeno serve`, write stdout/stderr logs under `~/.xeno/logs`, and inject Bun's runtime directory into LaunchAgent `PATH`
 - `uninstall`: macOS-only command to stop and remove the LaunchAgent (`cc.novacore.xeno.gateway`)
 

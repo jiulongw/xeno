@@ -1,21 +1,12 @@
 import { once } from "node:events";
-import {
-  BoxRenderable,
-  CliRenderEvents,
-  InputRenderable,
-  InputRenderableEvents,
-  ScrollBoxRenderable,
-  TextAttributes,
-  TextRenderable,
-  createCliRenderer,
-  type KeyEvent,
-} from "@opentui/core";
+import { createInterface } from "node:readline";
 
 import { GatewayRpcClient } from "./ipc/gateway-rpc";
 import { logger } from "./logger";
 import type { Attachment } from "./media";
 
 const CONSOLE_CHANNEL_ID = "default";
+const PROMPT = "> ";
 
 export async function runConsoleClient(home: string): Promise<void> {
   const rpcClient = new GatewayRpcClient(home);
@@ -31,118 +22,53 @@ export async function runConsoleClient(home: string): Promise<void> {
   }
 
   const snapshot = await rpcClient.initialize();
-
-  const renderer = await createCliRenderer({
-    exitOnCtrlC: false,
+  const readline = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    terminal: true,
   });
-
-  const app = new BoxRenderable(renderer, {
-    id: "app",
-    width: "100%",
-    height: "100%",
-    flexDirection: "column",
-    padding: 1,
-    gap: 1,
-    backgroundColor: "#1f2335",
-  });
-
-  const conversationList = new ScrollBoxRenderable(renderer, {
-    id: "conversation-list",
-    width: "100%",
-    flexGrow: 1,
-    scrollY: true,
-    stickyScroll: true,
-    stickyStart: "bottom",
-    border: true,
-    borderStyle: "rounded",
-    borderColor: "#565f89",
-    padding: 1,
-    backgroundColor: "#24283b",
-  });
-
-  const inputBar = new BoxRenderable(renderer, {
-    id: "input-bar",
-    width: "100%",
-    minHeight: 3,
-    maxHeight: 3,
-    border: true,
-    borderStyle: "rounded",
-    borderColor: "#565f89",
-    paddingLeft: 1,
-    paddingRight: 1,
-    justifyContent: "center",
-    backgroundColor: "#1a1b26",
-  });
-
-  const input = new InputRenderable(renderer, {
-    id: "chat-input",
-    width: "100%",
-    placeholder: "Type a message and press Enter (/hb to run heartbeat now)",
-    backgroundColor: "#1a1b26",
-    focusedBackgroundColor: "#1a1b26",
-    textColor: "#c0caf5",
-    cursorColor: "#7aa2f7",
-    placeholderColor: "#7f849c",
-  });
-
-  const addMessage = (role: "user" | "agent", content: string): TextRenderable => {
-    const isUser = role === "user";
-    if (isUser) {
-      const row = new BoxRenderable(renderer, {
-        id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        width: "100%",
-        flexDirection: "column",
-        border: true,
-        borderStyle: "rounded",
-        borderColor: "#7aa2f7",
-        backgroundColor: "#2c355b",
-        paddingLeft: 1,
-        paddingRight: 1,
-        marginBottom: 1,
-      });
-      const text = new TextRenderable(renderer, {
-        content,
-        fg: "#c0caf5",
-      });
-      row.add(text);
-      conversationList.add(row);
-      conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
-      renderer.requestRender();
-      return text;
-    }
-
-    const isStats = content.trimStart().startsWith("[stats]");
-    const text = new TextRenderable(renderer, {
-      id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      content,
-      fg: isStats ? "#9aa5ce" : "#eef1ff",
-      marginBottom: 1,
-      attributes: isStats ? TextAttributes.DIM : TextAttributes.NONE,
-    });
-    conversationList.add(text);
-    conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
-    renderer.requestRender();
-    return text;
-  };
+  let readlineClosed = false;
 
   let activeQuery = false;
   let abortingQuery = false;
   let shuttingDown = false;
 
-  const shutdown = (signal: NodeJS.Signals) => {
+  const printLine = (line: string): void => {
+    if (readlineClosed) {
+      return;
+    }
+
+    const safeLine = line.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+    const promptPrefix = readline.getPrompt() || PROMPT;
+    const typed = readline.line;
+
+    process.stdout.write("\r");
+    process.stdout.write(`${" ".repeat(promptPrefix.length + typed.length)}\r`);
+    process.stdout.write(`${safeLine}\n`);
+
+    if (!shuttingDown && !activeQuery) {
+      readline.prompt();
+    }
+  };
+
+  const addMessage = (role: "user" | "agent", content: string): void => {
+    const label = role === "user" ? "you" : "agent";
+    printLine(`[${label}] ${content}`);
+  };
+
+  const shutdown = (signal: NodeJS.Signals): void => {
     if (shuttingDown) {
       return;
     }
+
     shuttingDown = true;
     void rpcClient.abort().catch(() => undefined);
     rpcClient.close();
     platformLogger.info({ signal }, "Console client shutdown");
-    if (!renderer.isDestroyed) {
-      renderer.destroy();
-    }
+    readline.close();
   };
 
-  const handleInterrupt = (source: "SIGINT" | "SIGTERM" | "keypress") => {
+  const handleInterrupt = (source: "SIGINT" | "SIGTERM" | "keypress"): void => {
     if (activeQuery) {
       if (!abortingQuery) {
         abortingQuery = true;
@@ -167,124 +93,99 @@ export async function runConsoleClient(home: string): Promise<void> {
     if (shuttingDown) {
       return;
     }
+
     addMessage("agent", "Disconnected from gateway service.");
     shutdown("SIGTERM");
   });
 
-  try {
-    input.on(InputRenderableEvents.ENTER, async () => {
-      const userInput = input.value.trim();
-      if (!userInput) {
-        return;
+  const handleHeartbeat = async (): Promise<void> => {
+    addMessage("agent", "Running heartbeat...");
+    activeQuery = true;
+    abortingQuery = false;
+
+    try {
+      const heartbeat = await rpcClient.heartbeat();
+      const body = heartbeat.result?.trim();
+      const message =
+        heartbeat.ok && body
+          ? `[heartbeat]\n${body}`
+          : heartbeat.ok
+            ? heartbeat.message
+            : `Heartbeat unavailable: ${heartbeat.message}`;
+      addMessage("agent", message);
+
+      if (heartbeat.ok && typeof heartbeat.durationMs === "number") {
+        const seconds = (heartbeat.durationMs / 1000).toFixed(2);
+        addMessage("agent", `[stats] heartbeat duration=${seconds}s`);
       }
-
-      if (userInput === "/hb") {
-        if (activeQuery) {
-          addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
-          return;
-        }
-
-        addMessage("user", userInput);
-        input.value = "";
-        const statusMessage = addMessage("agent", "Running heartbeat...");
-        activeQuery = true;
-        abortingQuery = false;
-
-        try {
-          const heartbeat = await rpcClient.heartbeat();
-          const body = heartbeat.result?.trim();
-          statusMessage.content =
-            heartbeat.ok && body
-              ? `[heartbeat]\n${body}`
-              : heartbeat.ok
-                ? heartbeat.message
-                : `Heartbeat unavailable: ${heartbeat.message}`;
-          renderer.requestRender();
-
-          if (heartbeat.ok && typeof heartbeat.durationMs === "number") {
-            const seconds = (heartbeat.durationMs / 1000).toFixed(2);
-            addMessage("agent", `[stats] heartbeat duration=${seconds}s`);
-          }
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          statusMessage.content = `Error: ${message}`;
-          renderer.requestRender();
-          platformLogger.error({ error }, "Console heartbeat failed");
-        } finally {
-          activeQuery = false;
-          abortingQuery = false;
-        }
-
-        return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      addMessage("agent", `Error: ${message}`);
+      platformLogger.error({ error }, "Console heartbeat failed");
+    } finally {
+      activeQuery = false;
+      abortingQuery = false;
+      if (!shuttingDown) {
+        readline.prompt();
       }
+    }
+  };
 
-      if (activeQuery) {
-        addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
-        return;
+  const handleQuery = async (userInput: string): Promise<void> => {
+    addMessage("user", userInput);
+    activeQuery = true;
+    abortingQuery = false;
+
+    let sawResponse = false;
+    let latestResponse = "";
+
+    try {
+      await rpcClient.query(
+        userInput,
+        {
+          type: "console",
+          channelId: CONSOLE_CHANNEL_ID,
+          metadata: { home },
+        },
+        {
+          onStream: (content, isPartial, attachments) => {
+            sawResponse = true;
+            latestResponse = content;
+
+            if (!isPartial) {
+              addMessage("agent", latestResponse || "[No response]");
+              printAttachments(attachments, addMessage);
+            }
+          },
+          onStats: (stats) => {
+            addMessage("agent", `[stats] ${stats}`);
+          },
+        },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isAbortError =
+        message.toLowerCase().includes("aborted") || message.toLowerCase().includes("abort");
+      if (!isAbortError) {
+        addMessage("agent", `Error: ${message}`);
+        platformLogger.error({ error }, "Console query failed");
       }
-
-      addMessage("user", userInput);
-      input.value = "";
-
-      const agentMessage = addMessage("agent", "");
-      let sawResponse = false;
-      activeQuery = true;
+    } finally {
+      activeQuery = false;
       abortingQuery = false;
 
-      try {
-        await rpcClient.query(
-          userInput,
-          {
-            type: "console",
-            channelId: CONSOLE_CHANNEL_ID,
-            metadata: { home },
-          },
-          {
-            onStream: (content, isPartial, attachments) => {
-              sawResponse = true;
-              agentMessage.content = content;
-              conversationList.scrollTo({ x: 0, y: conversationList.scrollHeight });
-              renderer.requestRender();
-
-              if (!isPartial) {
-                printAttachments(attachments, addMessage);
-              }
-            },
-            onStats: (stats) => {
-              addMessage("agent", `[stats] ${stats}`);
-            },
-          },
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const isAbortError =
-          message.toLowerCase().includes("aborted") || message.toLowerCase().includes("abort");
-        if (!isAbortError) {
-          addMessage("agent", `Error: ${message}`);
-          platformLogger.error({ error }, "Console query failed");
-        }
-      } finally {
-        activeQuery = false;
-        abortingQuery = false;
-        if (!sawResponse) {
-          agentMessage.content = "[No response]";
-          renderer.requestRender();
-        }
+      if (!sawResponse) {
+        addMessage("agent", "[No response]");
       }
-    });
 
-    renderer.keyInput.on("keypress", (key: KeyEvent) => {
-      if (key.ctrl && key.name === "c") {
-        handleInterrupt("keypress");
+      if (!shuttingDown) {
+        readline.prompt();
       }
-    });
+    }
+  };
 
-    app.add(conversationList);
-    inputBar.add(input);
-    app.add(inputBar);
-    renderer.root.add(app);
-    input.focus();
-    renderer.start();
+  try {
+    readline.setPrompt(PROMPT);
 
     if (snapshot.sessionId) {
       addMessage("agent", `Resuming session: ${snapshot.sessionId}`);
@@ -296,22 +197,51 @@ export async function runConsoleClient(home: string): Promise<void> {
       }
     }
 
-    if (!renderer.isDestroyed) {
-      await once(renderer, CliRenderEvents.DESTROY);
-    }
+    readline.on("line", (line) => {
+      const userInput = line.trim();
+      if (!userInput || shuttingDown) {
+        if (!shuttingDown) {
+          readline.prompt();
+        }
+        return;
+      }
+
+      if (activeQuery) {
+        addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
+        return;
+      }
+
+      if (userInput === "/hb") {
+        void handleHeartbeat();
+        return;
+      }
+
+      void handleQuery(userInput);
+    });
+
+    readline.on("close", () => {
+      readlineClosed = true;
+      if (!shuttingDown) {
+        shutdown("SIGTERM");
+      }
+    });
+
+    readline.prompt();
+    await once(readline, "close");
   } finally {
     process.off("SIGINT", onSigInt);
     process.off("SIGTERM", onSigTerm);
     rpcClient.close();
-    if (!renderer.isDestroyed) {
-      renderer.destroy();
+
+    if (!readlineClosed) {
+      readline.close();
     }
   }
 }
 
 function printAttachments(
   attachments: Attachment[] | undefined,
-  addMessage: (role: "user" | "agent", content: string) => TextRenderable,
+  addMessage: (role: "user" | "agent", content: string) => void,
 ): void {
   if (!attachments || attachments.length === 0) {
     return;

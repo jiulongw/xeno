@@ -1,16 +1,5 @@
 import { once } from "node:events";
-import {
-  BoxRenderable,
-  CliRenderEvents,
-  InputRenderable,
-  InputRenderableEvents,
-  ScrollBoxRenderable,
-  TextAttributes,
-  TextRenderable,
-  createCliRenderer,
-  type CliRenderer,
-  type KeyEvent,
-} from "@opentui/core";
+import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 
 import type { Agent } from "../../agent";
 import { logger } from "../../logger";
@@ -27,6 +16,7 @@ import type {
 } from "../service";
 
 const CONSOLE_CHANNEL_ID = "default";
+const PROMPT = "> ";
 
 export interface ConsolePlatformOptions {
   home: string;
@@ -44,14 +34,12 @@ export class ConsolePlatform implements ChatService {
   private readonly agent: Agent;
   private readonly platformLogger;
 
-  private renderer: CliRenderer | null = null;
-  private conversationList: ScrollBoxRenderable | null = null;
-  private input: InputRenderable | null = null;
-  private pendingAgentMessage: TextRenderable | null = null;
-
+  private readline: ReadlineInterface | null = null;
+  private readlineClosed = false;
   private activeQuery = false;
   private abortingQuery = false;
   private shuttingDown = false;
+  private pendingAgentContent: string | null = null;
 
   private onUserMessageHandler: UserMessageHandler = () => undefined;
   private onAbortRequestHandler: AbortRequestHandler = () => undefined;
@@ -75,61 +63,14 @@ export class ConsolePlatform implements ChatService {
 
   async start(): Promise<void> {
     this.platformLogger.info("Console platform starting");
-    const renderer = await createCliRenderer({
-      exitOnCtrlC: false,
-    });
-    this.renderer = renderer;
 
-    const app = new BoxRenderable(renderer, {
-      id: "app",
-      width: "100%",
-      height: "100%",
-      flexDirection: "column",
-      padding: 1,
-      gap: 1,
-      backgroundColor: "#1f2335",
+    const readline = createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      terminal: true,
     });
-
-    const conversationList = new ScrollBoxRenderable(renderer, {
-      id: "conversation-list",
-      width: "100%",
-      flexGrow: 1,
-      scrollY: true,
-      stickyScroll: true,
-      stickyStart: "bottom",
-      border: true,
-      borderStyle: "rounded",
-      borderColor: "#565f89",
-      padding: 1,
-      backgroundColor: "#24283b",
-    });
-    this.conversationList = conversationList;
-
-    const inputBar = new BoxRenderable(renderer, {
-      id: "input-bar",
-      width: "100%",
-      minHeight: 3,
-      maxHeight: 3,
-      border: true,
-      borderStyle: "rounded",
-      borderColor: "#565f89",
-      paddingLeft: 1,
-      paddingRight: 1,
-      justifyContent: "center",
-      backgroundColor: "#1a1b26",
-    });
-
-    const input = new InputRenderable(renderer, {
-      id: "chat-input",
-      width: "100%",
-      placeholder: "Type a message and press Enter",
-      backgroundColor: "#1a1b26",
-      focusedBackgroundColor: "#1a1b26",
-      textColor: "#c0caf5",
-      cursorColor: "#7aa2f7",
-      placeholderColor: "#7f849c",
-    });
-    this.input = input;
+    this.readline = readline;
+    this.readlineClosed = false;
 
     this.onSigInt = () => this.handleInterrupt("SIGINT");
     this.onSigTerm = () => this.handleInterrupt("SIGTERM");
@@ -137,52 +78,7 @@ export class ConsolePlatform implements ChatService {
     process.on("SIGTERM", this.onSigTerm);
 
     try {
-      input.on(InputRenderableEvents.ENTER, async () => {
-        const userInput = input.value.trim();
-        if (!userInput) {
-          return;
-        }
-        if (this.activeQuery) {
-          this.addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
-          return;
-        }
-
-        this.addMessage("user", userInput);
-        input.value = "";
-        this.pendingAgentMessage = this.addMessage("agent", "");
-        this.activeQuery = true;
-        this.abortingQuery = false;
-
-        try {
-          const inbound: ChatInboundMessage = {
-            content: userInput,
-            context: {
-              type: "console",
-              channelId: CONSOLE_CHANNEL_ID,
-              metadata: { home: this.home },
-            },
-          };
-          await this.onUserMessageHandler(inbound);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          this.addMessage("agent", `Error: ${message}`);
-          this.finishAgentMessage("[No response]");
-          this.platformLogger.error({ error }, "Console user message handler failed");
-        }
-      });
-
-      renderer.keyInput.on("keypress", (key: KeyEvent) => {
-        if (key.ctrl && key.name === "c") {
-          this.handleInterrupt("keypress");
-        }
-      });
-
-      app.add(conversationList);
-      inputBar.add(input);
-      app.add(inputBar);
-      renderer.root.add(app);
-      input.focus();
-      renderer.start();
+      readline.setPrompt(PROMPT);
 
       const sessionId = this.agent.getSessionId();
       if (sessionId) {
@@ -196,9 +92,37 @@ export class ConsolePlatform implements ChatService {
         }
       }
 
-      if (!renderer.isDestroyed) {
-        await once(renderer, CliRenderEvents.DESTROY);
-      }
+      readline.on("line", (line) => {
+        const userInput = line.trim();
+        if (!userInput || this.shuttingDown) {
+          if (!this.shuttingDown) {
+            this.prompt();
+          }
+          return;
+        }
+
+        if (this.activeQuery) {
+          this.addMessage("agent", "A request is already running. Press Ctrl-C to abort it.");
+          return;
+        }
+
+        this.addMessage("user", userInput);
+        this.activeQuery = true;
+        this.abortingQuery = false;
+        this.pendingAgentContent = null;
+
+        void this.forwardUserMessage(userInput);
+      });
+
+      readline.on("close", () => {
+        this.readlineClosed = true;
+        if (!this.shuttingDown) {
+          this.shutdown("SIGTERM");
+        }
+      });
+
+      this.prompt();
+      await once(readline, "close");
     } finally {
       if (this.onSigInt) {
         process.off("SIGINT", this.onSigInt);
@@ -207,13 +131,13 @@ export class ConsolePlatform implements ChatService {
         process.off("SIGTERM", this.onSigTerm);
       }
 
-      if (!renderer.isDestroyed) {
-        renderer.destroy();
+      if (this.readline && !this.readlineClosed) {
+        this.readline.close();
       }
-      this.renderer = null;
-      this.conversationList = null;
-      this.input = null;
-      this.pendingAgentMessage = null;
+
+      this.readline = null;
+      this.readlineClosed = false;
+      this.pendingAgentContent = null;
       this.activeQuery = false;
       this.abortingQuery = false;
       this.shuttingDown = true;
@@ -231,7 +155,7 @@ export class ConsolePlatform implements ChatService {
     isPartial: boolean,
     options?: OutboundMessageOptions,
   ): Promise<void> {
-    if (!this.renderer || !this.conversationList) {
+    if (!this.readline) {
       return;
     }
 
@@ -246,24 +170,44 @@ export class ConsolePlatform implements ChatService {
       return;
     }
 
-    if (!this.pendingAgentMessage) {
-      this.pendingAgentMessage = this.addMessage("agent", "");
+    this.pendingAgentContent = content;
+
+    if (isPartial) {
+      return;
     }
 
-    this.pendingAgentMessage.content = content;
-    this.scrollConversation();
-    this.renderer.requestRender();
-
-    if (!isPartial) {
-      this.printAttachments(options?.attachments);
-      this.pendingAgentMessage = null;
-      this.activeQuery = false;
-      this.abortingQuery = false;
-    }
+    this.addMessage("agent", this.pendingAgentContent || "[No response]");
+    this.printAttachments(options?.attachments);
+    this.pendingAgentContent = null;
+    this.activeQuery = false;
+    this.abortingQuery = false;
+    this.prompt();
   }
 
   async sendStats(stats: string): Promise<void> {
     this.addMessage("agent", `[stats] ${stats}`);
+  }
+
+  private async forwardUserMessage(userInput: string): Promise<void> {
+    try {
+      const inbound: ChatInboundMessage = {
+        content: userInput,
+        context: {
+          type: "console",
+          channelId: CONSOLE_CHANNEL_ID,
+          metadata: { home: this.home },
+        },
+      };
+      await this.onUserMessageHandler(inbound);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.addMessage("agent", `Error: ${message}`);
+      this.platformLogger.error({ error }, "Console user message handler failed");
+      this.activeQuery = false;
+      this.abortingQuery = false;
+      this.pendingAgentContent = null;
+      this.prompt();
+    }
   }
 
   private handleInterrupt(source: "SIGINT" | "SIGTERM" | "keypress"): void {
@@ -291,75 +235,44 @@ export class ConsolePlatform implements ChatService {
     this.onAbortRequestHandler();
     this.platformLogger.info({ signal }, "Console shutdown");
 
-    if (this.renderer && !this.renderer.isDestroyed) {
-      this.renderer.destroy();
+    if (this.readline && !this.readlineClosed) {
+      this.readline.close();
     }
   }
 
-  private addMessage(role: "user" | "agent", content: string): TextRenderable {
-    if (!this.renderer || !this.conversationList) {
-      throw new Error("Console renderer not initialized");
-    }
-
-    const isUser = role === "user";
-    if (isUser) {
-      const row = new BoxRenderable(this.renderer, {
-        id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        width: "100%",
-        flexDirection: "column",
-        border: true,
-        borderStyle: "rounded",
-        borderColor: "#7aa2f7",
-        backgroundColor: "#2c355b",
-        paddingLeft: 1,
-        paddingRight: 1,
-        marginBottom: 1,
-      });
-      const text = new TextRenderable(this.renderer, {
-        content,
-        fg: "#c0caf5",
-      });
-      row.add(text);
-      this.conversationList.add(row);
-      this.scrollConversation();
-      this.renderer.requestRender();
-      return text;
-    }
-
-    const isStats = content.trimStart().startsWith("[stats]");
-    const text = new TextRenderable(this.renderer, {
-      id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      content,
-      fg: isStats ? "#9aa5ce" : "#eef1ff",
-      marginBottom: 1,
-      attributes: isStats ? TextAttributes.DIM : TextAttributes.NONE,
-    });
-    this.conversationList.add(text);
-    this.scrollConversation();
-    this.renderer.requestRender();
-    return text;
-  }
-
-  private scrollConversation(): void {
-    if (!this.conversationList) {
+  private prompt(): void {
+    if (!this.readline || this.readlineClosed || this.shuttingDown || this.activeQuery) {
       return;
     }
-    this.conversationList.scrollTo({ x: 0, y: this.conversationList.scrollHeight });
+
+    this.readline.prompt();
   }
 
-  private finishAgentMessage(content: string): void {
-    if (!this.pendingAgentMessage && this.renderer && this.conversationList) {
-      this.pendingAgentMessage = this.addMessage("agent", "");
-    }
-    if (!this.pendingAgentMessage || !this.renderer) {
+  private addMessage(role: "user" | "agent", content: string): void {
+    if (!this.readline || this.readlineClosed) {
       return;
     }
-    this.pendingAgentMessage.content = content;
-    this.scrollConversation();
-    this.renderer.requestRender();
-    this.pendingAgentMessage = null;
-    this.activeQuery = false;
-    this.abortingQuery = false;
+
+    const label = role === "user" ? "user" : "agent";
+    this.printLine(`[${label}] ${content}`);
+  }
+
+  private printLine(line: string): void {
+    if (!this.readline || this.readlineClosed) {
+      return;
+    }
+
+    const safeLine = line.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+    const promptPrefix = this.readline.getPrompt() || PROMPT;
+    const typed = this.readline.line;
+
+    process.stdout.write("\r");
+    process.stdout.write(`${" ".repeat(promptPrefix.length + typed.length)}\r`);
+    process.stdout.write(`${safeLine}\n`);
+
+    if (!this.shuttingDown && !this.activeQuery) {
+      this.prompt();
+    }
   }
 
   private formatOutboundTarget(target: OutboundMessageTarget): string {
