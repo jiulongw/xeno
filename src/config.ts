@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 export interface AppConfig {
   defaultHome?: string;
   telegramBotToken?: string;
+  telegramAllowedUsers?: string[];
   heartbeatIntervalMinutes?: number;
   heartbeatModel?: string;
   heartbeatEnabled?: boolean;
@@ -43,6 +44,11 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
   const record = parsed as Record<string, unknown>;
   const defaultHome = readOptionalString(record, "default_home", configPath);
   const telegramBotToken = readOptionalString(record, "telegram_bot_token", configPath);
+  const telegramAllowedUsers = readOptionalTelegramUserIdList(
+    record,
+    "telegram_allowed_users",
+    configPath,
+  );
   const heartbeatIntervalMinutes = readOptionalNumber(
     record,
     "heartbeat_interval_minutes",
@@ -54,6 +60,7 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
   return {
     defaultHome: defaultHome?.trim() || undefined,
     telegramBotToken: telegramBotToken?.trim() || undefined,
+    telegramAllowedUsers,
     heartbeatIntervalMinutes,
     heartbeatModel: heartbeatModel?.trim() || undefined,
     heartbeatEnabled,
@@ -138,6 +145,42 @@ function readOptionalBoolean(
   }
 
   return value;
+}
+
+function readOptionalTelegramUserIdList(
+  source: Record<string, unknown>,
+  key: string,
+  configPath: string,
+): string[] | undefined {
+  const value = source[key];
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+
+  if (!Array.isArray(value)) {
+    throw new Error(`Expected "${key}" in ${configPath} to be an array.`);
+  }
+
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      const trimmed = entry.trim();
+      if (!trimmed) {
+        throw new Error(`Expected all entries in "${key}" in ${configPath} to be non-empty.`);
+      }
+      normalized.push(trimmed);
+      continue;
+    }
+
+    if (typeof entry === "number" && Number.isFinite(entry) && Number.isInteger(entry)) {
+      normalized.push(String(entry));
+      continue;
+    }
+
+    throw new Error(`Expected all entries in "${key}" in ${configPath} to be strings or integers.`);
+  }
+
+  return Array.from(new Set(normalized));
 }
 
 function expandHomeShortcut(pathValue: string, baseHome: string = homedir()): string {

@@ -18,6 +18,7 @@ import type {
 export interface TelegramPlatformOptions {
   home: string;
   token: string;
+  allowedUserIds?: string[];
 }
 
 export class TelegramPlatform implements ChatService {
@@ -30,6 +31,7 @@ export class TelegramPlatform implements ChatService {
 
   private readonly home: string;
   private readonly token: string;
+  private readonly allowedUserIds: ReadonlySet<string> | null;
   private readonly platformLogger;
 
   private bot: Bot | null = null;
@@ -56,6 +58,12 @@ export class TelegramPlatform implements ChatService {
   constructor(options: TelegramPlatformOptions) {
     this.home = options.home;
     this.token = options.token;
+    this.allowedUserIds =
+      options.allowedUserIds === undefined
+        ? null
+        : new Set(
+            options.allowedUserIds.map((value) => value.trim()).filter((value) => value.length > 0),
+          );
     this.platformLogger = logger.child({ service: "telegram", home: this.home });
   }
 
@@ -79,6 +87,10 @@ export class TelegramPlatform implements ChatService {
 
     bot.use(async (ctx, next) => {
       this.logInboundMessage(ctx);
+      if (ctx.message && !this.isUserAllowed(ctx)) {
+        await this.replyUnauthorized(ctx);
+        return;
+      }
       await next();
     });
 
@@ -588,6 +600,49 @@ export class TelegramPlatform implements ChatService {
       );
     } catch (error) {
       this.platformLogger.warn({ error }, "Failed to initialize Telegram slash commands");
+    }
+  }
+
+  private isUserAllowed(ctx: Context): boolean {
+    if (!this.allowedUserIds) {
+      return false;
+    }
+
+    const userId = ctx.from ? String(ctx.from.id) : "";
+    if (!userId) {
+      return false;
+    }
+
+    return this.allowedUserIds.has(userId);
+  }
+
+  private async replyUnauthorized(ctx: Context): Promise<void> {
+    const userId = ctx.from ? String(ctx.from.id) : "unknown";
+    const channelId = ctx.chat ? String(ctx.chat.id) : undefined;
+    const message = `Your user id is ${userId}. This bot is now allowed to respond your request.`;
+
+    this.platformLogger.warn(
+      {
+        userId,
+        channelId,
+        chatType: ctx.chat?.type,
+      },
+      "Rejected Telegram message from unauthorized user",
+    );
+
+    try {
+      if (ctx.chat) {
+        await ctx.reply(message);
+      }
+    } catch (error) {
+      this.platformLogger.warn(
+        {
+          error,
+          userId,
+          channelId,
+        },
+        "Failed to send unauthorized Telegram response",
+      );
     }
   }
 

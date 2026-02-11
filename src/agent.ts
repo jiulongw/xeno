@@ -79,7 +79,8 @@ export class Agent implements AgentRuntime {
 
   updateLastChannel(context: PlatformContext): void {
     const channelId = context.channelId?.trim();
-    if (!channelId) {
+    if (context.type === "console" || !channelId) {
+      // proactive message not supported in console.
       return;
     }
 

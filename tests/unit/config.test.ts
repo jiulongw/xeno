@@ -56,6 +56,23 @@ describe("config", () => {
     });
   });
 
+  test("loads telegram_allowed_users as normalized strings", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        telegram_allowed_users: [123456789, " 42 ", "42", "alice"],
+      }),
+      "utf-8",
+    );
+
+    const config = await loadConfigFromPath(configPath);
+    expect(config).toEqual({
+      telegramAllowedUsers: ["123456789", "42", "alice"],
+    });
+  });
+
   test("loads optional heartbeat settings", async () => {
     const dir = await makeTempDir();
     const configPath = join(dir, "config.json");
@@ -99,6 +116,30 @@ describe("config", () => {
     await writeFile(configPath, JSON.stringify({ heartbeat_enabled: "yes" }), "utf-8");
 
     await expect(loadConfigFromPath(configPath)).rejects.toThrow('Expected "heartbeat_enabled" in');
+  });
+
+  test("throws when telegram_allowed_users is not an array", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    await writeFile(configPath, JSON.stringify({ telegram_allowed_users: "123" }), "utf-8");
+
+    await expect(loadConfigFromPath(configPath)).rejects.toThrow(
+      'Expected "telegram_allowed_users" in',
+    );
+  });
+
+  test("throws when telegram_allowed_users contains unsupported values", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({ telegram_allowed_users: [123, 1.25, "456"] }),
+      "utf-8",
+    );
+
+    await expect(loadConfigFromPath(configPath)).rejects.toThrow(
+      'Expected all entries in "telegram_allowed_users"',
+    );
   });
 
   test("resolveHome prefers --home over config default_home", () => {

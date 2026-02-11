@@ -29,7 +29,13 @@ function buildServeServices(home: string, config: AppConfig): ChatService[] {
   const telegramToken = resolveTelegramBotToken(config);
 
   if (telegramToken) {
-    services.push(new TelegramPlatform({ home, token: telegramToken }));
+    services.push(
+      new TelegramPlatform({
+        home,
+        token: telegramToken,
+        allowedUserIds: config.telegramAllowedUsers,
+      }),
+    );
   } else {
     logger.info(
       { configPath: getConfigPath() },
