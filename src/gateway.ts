@@ -258,11 +258,15 @@ export class Gateway {
     this.activeQuery = true;
     let streamed = "";
     let fallbackFinal = "";
+    const command = parseSlashCommand(inbound.content);
+    const isCompactCommand = command === "/compact";
+    const prompt = isCompactCommand ? "/compact" : inbound.content;
+    const platformContext = isCompactCommand ? undefined : inbound.context;
 
     try {
-      for await (const message of this.agent.query(inbound.content, {
+      for await (const message of this.agent.query(prompt, {
         includePartialMessages: true,
-        platformContext: inbound.context,
+        platformContext,
         mcpServers: this.mcpServers,
         attachments: inbound.attachments,
       })) {
@@ -384,6 +388,20 @@ export class Gateway {
 }
 
 type QueryService = Pick<ChatService, "type" | "capabilities" | "sendMessage" | "sendStats">;
+
+function parseSlashCommand(content: string): string | null {
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("/")) {
+    return null;
+  }
+
+  const [command] = trimmed.split(/\s+/, 1);
+  if (!command) {
+    return null;
+  }
+
+  return command.toLowerCase();
+}
 
 function mergeMcpServers(
   base: Record<string, McpServerConfig> | undefined,

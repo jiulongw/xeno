@@ -18,6 +18,9 @@
 - `serve` enables Telegram chat service automatically when a token is configured:
   - `TELEGRAM_BOT_TOKEN` environment variable (highest precedence)
   - `telegram_bot_token` in `~/.config/xeno/config.json`
+  - Telegram `/start` initializes bot commands (currently `/compact`)
+  - Telegram `/compact` is forwarded as raw `/compact` and bypasses platform context wrapping
+  - Other Telegram messages include sender display context (`first_name`, fallback `username`)
 - `serve` also supports heartbeat config from `~/.config/xeno/config.json`:
   - `heartbeat_interval_minutes` (number, optional)
   - `heartbeat_model` (string, optional)
@@ -65,6 +68,7 @@
 
 - Logger: `src/logger.ts` (`pino`)
 - Log level: `LOG_LEVEL` env var (default `info`)
+- Telegram inbound logging includes command detection, message/attachment type metadata, and short text/caption previews
 
 ## Claude executable path
 

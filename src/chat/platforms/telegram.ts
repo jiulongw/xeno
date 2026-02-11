@@ -46,6 +46,12 @@ export class TelegramPlatform implements ChatService {
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private lastEditAt = 0;
   private readonly minEditIntervalMs = 1_000;
+  private static readonly BOT_COMMANDS = [
+    {
+      command: "compact",
+      description: "Compact context window",
+    },
+  ] as const;
 
   constructor(options: TelegramPlatformOptions) {
     this.home = options.home;
@@ -71,6 +77,11 @@ export class TelegramPlatform implements ChatService {
     const bot = new Bot(this.token);
     this.bot = bot;
 
+    bot.use(async (ctx, next) => {
+      this.logInboundMessage(ctx);
+      await next();
+    });
+
     bot.catch((error) => {
       const context = error.ctx;
       this.platformLogger.error(
@@ -85,7 +96,7 @@ export class TelegramPlatform implements ChatService {
       );
     });
 
-    bot.command("start", (ctx) => {
+    bot.command("start", async (ctx) => {
       this.platformLogger.info(
         {
           userId: ctx.from ? String(ctx.from.id) : undefined,
@@ -95,6 +106,24 @@ export class TelegramPlatform implements ChatService {
         },
         "Telegram /start received",
       );
+
+      await this.initializeBotCommands(ctx);
+    });
+
+    bot.command("compact", (ctx) => {
+      this.platformLogger.info(
+        {
+          userId: ctx.from ? String(ctx.from.id) : undefined,
+          channelId: ctx.chat ? String(ctx.chat.id) : undefined,
+          chatType: ctx.chat?.type,
+          username: ctx.from?.username,
+        },
+        "Telegram /compact received",
+      );
+
+      this.enqueueInbound(async () => {
+        await this.handleIncomingText(ctx, "/compact");
+      });
     });
 
     bot.on("message:text", (ctx) => {
@@ -358,6 +387,8 @@ export class TelegramPlatform implements ChatService {
         channelId: this.activeChatId !== null ? String(this.activeChatId) : undefined,
         metadata: {
           username: ctx.from?.username,
+          firstName: ctx.from?.first_name,
+          lastName: ctx.from?.last_name,
           chatType: ctx.chat?.type,
         },
       },
@@ -542,6 +573,122 @@ export class TelegramPlatform implements ChatService {
       return null;
     }
     return parsed;
+  }
+
+  private async initializeBotCommands(ctx: Context): Promise<void> {
+    try {
+      await ctx.api.setMyCommands([...TelegramPlatform.BOT_COMMANDS]);
+      this.platformLogger.info(
+        {
+          userId: ctx.from ? String(ctx.from.id) : undefined,
+          channelId: ctx.chat ? String(ctx.chat.id) : undefined,
+          commands: TelegramPlatform.BOT_COMMANDS.map((command) => `/${command.command}`),
+        },
+        "Telegram slash commands initialized",
+      );
+    } catch (error) {
+      this.platformLogger.warn({ error }, "Failed to initialize Telegram slash commands");
+    }
+  }
+
+  private logInboundMessage(ctx: Context): void {
+    const message = ctx.message;
+    if (!message) {
+      return;
+    }
+
+    const text = "text" in message && typeof message.text === "string" ? message.text.trim() : "";
+    const caption =
+      "caption" in message && typeof message.caption === "string" ? message.caption : "";
+    const command = text.startsWith("/") ? text.split(/\s+/, 1)[0] : undefined;
+    const messageType = this.detectMessageType(message);
+    const attachmentCount = this.countAttachments(message);
+
+    this.platformLogger.info(
+      {
+        updateId: ctx.update.update_id,
+        messageId: message.message_id,
+        userId: message.from ? String(message.from.id) : undefined,
+        username: message.from?.username,
+        firstName: message.from?.first_name,
+        languageCode: message.from?.language_code,
+        isBot: message.from?.is_bot,
+        channelId: String(message.chat.id),
+        chatType: message.chat.type,
+        messageType,
+        command,
+        textLength: text.length || undefined,
+        textPreview: text ? this.preview(text) : undefined,
+        captionLength: caption.length || undefined,
+        captionPreview: caption ? this.preview(caption) : undefined,
+        attachmentCount: attachmentCount || undefined,
+      },
+      "Telegram inbound message",
+    );
+  }
+
+  private detectMessageType(message: NonNullable<Context["message"]>): string {
+    if ("text" in message) {
+      return "text";
+    }
+    if ("photo" in message) {
+      return "photo";
+    }
+    if ("document" in message) {
+      return "document";
+    }
+    if ("video" in message) {
+      return "video";
+    }
+    if ("audio" in message) {
+      return "audio";
+    }
+    if ("voice" in message) {
+      return "voice";
+    }
+    if ("animation" in message) {
+      return "animation";
+    }
+    if ("sticker" in message) {
+      return "sticker";
+    }
+    return "unknown";
+  }
+
+  private countAttachments(message: NonNullable<Context["message"]>): number {
+    let count = 0;
+
+    if ("photo" in message && Array.isArray(message.photo)) {
+      count += message.photo.length;
+    }
+    if ("document" in message) {
+      count += 1;
+    }
+    if ("video" in message) {
+      count += 1;
+    }
+    if ("audio" in message) {
+      count += 1;
+    }
+    if ("voice" in message) {
+      count += 1;
+    }
+    if ("animation" in message) {
+      count += 1;
+    }
+    if ("sticker" in message) {
+      count += 1;
+    }
+
+    return count;
+  }
+
+  private preview(value: string, limit = 160): string {
+    const normalized = value.replace(/\s+/g, " ").trim();
+    if (normalized.length <= limit) {
+      return normalized;
+    }
+    return `${normalized.slice(0, limit)}...`;
   }
 }
 

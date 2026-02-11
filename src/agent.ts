@@ -251,7 +251,14 @@ export class Agent implements AgentRuntime {
     let basePrompt = userPrompt;
 
     if (platformContext) {
-      basePrompt = `<developer>message from ${platformContext.type}</developer>\n\n${userPrompt}`;
+      const name = platformContext.metadata?.firstName || platformContext.metadata?.username;
+      let platformPrompt;
+      if (name) {
+        platformPrompt = `message from ${name} on ${platformContext.type}`;
+      } else {
+        platformPrompt = `message from ${platformContext.type}`;
+      }
+      basePrompt = `<developer>${platformPrompt}</developer>\n\n${userPrompt}`;
     }
 
     if (cronContext) {

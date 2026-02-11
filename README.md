@@ -62,6 +62,9 @@ You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
 
 - `serve` enables Telegram automatically when a token is available
 - `TELEGRAM_BOT_TOKEN` overrides `telegram_bot_token` from config
+- Sending `/start` initializes bot commands for the chat (currently `/compact`)
+- Telegram `/compact` is forwarded as a raw slash command and bypasses platform-context wrapping
+- Non-command Telegram messages include sender name context (`first_name`, fallback `username`) when passed to the agent
 
 ## Cron and heartbeat
 
@@ -112,6 +115,8 @@ Structured logs use `pino`. Set `LOG_LEVEL` to control verbosity:
 ```bash
 LOG_LEVEL=debug bun run src/index.ts serve --home /tmp/xeno
 ```
+
+Telegram inbound messages are logged at `info` with metadata including user/chat IDs, message type, detected slash command, attachment count, and short text/caption previews.
 
 ## Known edge case
 

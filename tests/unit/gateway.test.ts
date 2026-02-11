@@ -76,6 +76,32 @@ describe("Gateway", () => {
     expect(agent.calls[0]?.options?.platformContext?.type).toBe("console");
   });
 
+  test("routes /compact as raw slash command without platform context wrapping", async () => {
+    const agent = new EchoMockAgent();
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("telegram");
+
+    await gateway.submitMessage(
+      service,
+      inbound("/compact", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    expect(agent.calls.length).toBe(1);
+    expect(agent.calls[0]?.prompt).toBe("/compact");
+    expect(agent.calls[0]?.options?.platformContext).toBeUndefined();
+    expect(service.messages).toEqual([
+      { content: "/compact", isPartial: true, options: { reason: "response" } },
+      { content: "/compact", isPartial: false, options: { reason: "response" } },
+    ]);
+  });
+
   test("rejects a second request while one is active", async () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 80 });
     const gateway = new Gateway({
