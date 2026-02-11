@@ -39,6 +39,8 @@ describe("createHome", () => {
       "TOOLS.md",
       "USER.md",
       ".claude/settings.local.json",
+      ".claude/skills/heartbeat/SKILL.md",
+      ".claude/skills/run-cron-task/SKILL.md",
     ];
 
     for (const relativePath of expectedFiles) {

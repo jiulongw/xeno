@@ -23,7 +23,6 @@
   - Other Telegram messages include sender display context (`first_name`, fallback `username`)
 - `serve` also supports heartbeat config from `~/.config/xeno/config.json`:
   - `heartbeat_interval_minutes` (number, optional)
-  - `heartbeat_model` (string, optional)
   - `heartbeat_enabled` (boolean, optional; defaults to `true`)
 
 ## Cron and heartbeat
@@ -33,12 +32,13 @@
   - Loads persisted tasks from `<home>/cron-tasks.json` via `src/cron/store.ts`
   - Supports `interval`, `once`, and `cron_expression` schedules
   - `notify` supports `auto` and `never` (`always` is not supported)
-  - Cron runs are executed via `Gateway.runCronQuery` and prompt-prefixed as `/cron "<task_id>"`
+  - Cron runs are executed via `Gateway.runCronQuery` and prompt-prefixed as `/run-cron-task task_id:<task_id> now:<iso_timestamp>`
+  - Cron task model selection is not user-configurable; runs use `CRON_DEFAULT_MODEL` (`haiku`)
   - `runServe` currently does not auto-broadcast cron completion results in `onResult`
 - Built-in heartbeat task:
   - Factory: `src/cron/heartbeat.ts`
   - Task ID: `__heartbeat__`
-  - Uses `/heartbeat` prompt prefix at runtime
+  - Uses `/heartbeat now:<iso_timestamp>` prompt prefix at runtime
   - Runtime-only (not persisted to cron store)
   - Triggered on schedule, from console `/hb`, or over RPC `gateway.heartbeat`
 - MCP integration:
@@ -61,6 +61,8 @@
   - `TOOLS.md`
   - `USER.md`
   - `.claude/settings.local.json`
+  - `.claude/skills/heartbeat/SKILL.md`
+  - `.claude/skills/run-cron-task/SKILL.md`
 - `memory/` is created if missing.
 - Existing files are never overwritten.
 

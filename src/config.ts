@@ -8,7 +8,6 @@ export interface AppConfig {
   telegramBotToken?: string;
   telegramAllowedUsers?: string[];
   heartbeatIntervalMinutes?: number;
-  heartbeatModel?: string;
   heartbeatEnabled?: boolean;
 }
 
@@ -54,7 +53,6 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
     "heartbeat_interval_minutes",
     configPath,
   );
-  const heartbeatModel = readOptionalString(record, "heartbeat_model", configPath);
   const heartbeatEnabled = readOptionalBoolean(record, "heartbeat_enabled", configPath);
 
   return {
@@ -62,7 +60,6 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
     telegramBotToken: telegramBotToken?.trim() || undefined,
     telegramAllowedUsers,
     heartbeatIntervalMinutes,
-    heartbeatModel: heartbeatModel?.trim() || undefined,
     heartbeatEnabled,
   };
 }

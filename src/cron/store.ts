@@ -165,7 +165,6 @@ function parseCronTask(value: unknown): CronTask | null {
     return null;
   }
 
-  const model = asOptionalNonEmptyString(record.model);
   const lastRunAt = asOptionalNonEmptyString(record.lastRunAt);
   const lastResult = asOptionalString(record.lastResult);
   const maxTurns = asOptionalPositiveInteger(record.maxTurns);
@@ -175,7 +174,6 @@ function parseCronTask(value: unknown): CronTask | null {
     name,
     prompt,
     schedule,
-    model,
     notify,
     maxTurns,
     enabled,

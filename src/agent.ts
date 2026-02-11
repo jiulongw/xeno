@@ -263,10 +263,11 @@ export class Agent implements AgentRuntime {
     }
 
     if (cronContext) {
+      const now = new Date().toISOString();
       if (cronContext.taskId === HEARTBEAT_TASK_ID) {
-        basePrompt = `/heartbeat ${userPrompt}`;
+        basePrompt = `/heartbeat now:${now} ${userPrompt}`;
       } else {
-        basePrompt = `/cron "${cronContext.taskId}" ${userPrompt}`;
+        basePrompt = `/run-cron-task task_id:${cronContext.taskId} now:${now} ${userPrompt}`;
       }
     }
 

@@ -80,7 +80,6 @@ describe("config", () => {
       configPath,
       JSON.stringify({
         heartbeat_interval_minutes: 15,
-        heartbeat_model: "haiku",
         heartbeat_enabled: false,
       }),
       "utf-8",
@@ -89,7 +88,6 @@ describe("config", () => {
     const config = await loadConfigFromPath(configPath);
     expect(config).toEqual({
       heartbeatIntervalMinutes: 15,
-      heartbeatModel: "haiku",
       heartbeatEnabled: false,
     });
   });

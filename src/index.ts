@@ -65,7 +65,6 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
     heartbeatTask: heartbeatEnabled
       ? createHeartbeatTask({
           intervalMinutes: config.heartbeatIntervalMinutes,
-          model: config.heartbeatModel,
           enabled: heartbeatEnabled,
         })
       : undefined,

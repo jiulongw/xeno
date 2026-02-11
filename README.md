@@ -22,6 +22,8 @@ Before running `serve` or `console`, xeno creates the resolved home directory (i
 - `TOOLS.md`
 - `USER.md`
 - `.claude/settings.local.json`
+- `.claude/skills/heartbeat/SKILL.md`
+- `.claude/skills/run-cron-task/SKILL.md`
 - `memory/` directory
 
 Existing files are preserved.
@@ -70,9 +72,10 @@ You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
 
 - `serve` starts a cron engine and exposes cron task management to the agent via MCP server `xeno-cron`
 - Available cron MCP tools: `create_cron_task`, `list_cron_tasks`, `update_cron_task`, `delete_cron_task`
-- Cron and heartbeat runs execute through the gateway agent runtime (cron runs are prefixed as `/cron "<task_id>"`, heartbeat runs as `/heartbeat`)
+- Cron and heartbeat runs execute through the gateway agent runtime (cron runs are prefixed as `/run-cron-task task_id:<task_id> now:<iso_timestamp>`, heartbeat runs as `/heartbeat now:<iso_timestamp>`)
 - During cron execution, xeno injects MCP server `xeno-messenger` with tool `send_message` so tasks can send proactive messages (default target: last known channel)
 - Cron task `notify` modes are `auto` and `never`
+- Cron task model selection is not user-configurable; runs use the internal default model
 - Cron engine result callbacks are currently not auto-broadcast to chat channels
 - Persistent cron tasks are stored at `<home>/cron-tasks.json`
 - Built-in heartbeat task:
@@ -92,7 +95,6 @@ Example:
   "default_home": "/tmp/xeno",
   "telegram_bot_token": "123456:abcdef",
   "heartbeat_interval_minutes": 30,
-  "heartbeat_model": "haiku",
   "heartbeat_enabled": true
 }
 ```
@@ -100,7 +102,6 @@ Example:
 Heartbeat config keys are optional:
 
 - `heartbeat_interval_minutes` (number): interval for built-in heartbeat task
-- `heartbeat_model` (string): model override for heartbeat runs
 - `heartbeat_enabled` (boolean): enable/disable built-in heartbeat task (default `true`)
 
 ## Claude executable override

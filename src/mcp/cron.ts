@@ -17,7 +17,6 @@ export function createCronMcpServer(engine: CronEngine) {
           interval_minutes: z.number().positive().optional(),
           run_at: z.string().min(1).optional(),
           cron_expression: z.string().min(1).optional(),
-          model: z.string().min(1).optional(),
           notify: z.enum(["auto", "never"]).optional(),
           max_turns: z.number().int().positive().optional(),
           enabled: z.boolean().optional(),
@@ -33,7 +32,6 @@ export function createCronMcpServer(engine: CronEngine) {
             name: args.name,
             prompt: args.prompt,
             schedule,
-            model: args.model,
             notify: args.notify,
             maxTurns: args.max_turns,
             enabled: args.enabled,
@@ -66,7 +64,7 @@ export function createCronMcpServer(engine: CronEngine) {
       ),
       tool(
         "update_cron_task",
-        "Update cron task fields like schedule, prompt, model, and enabled status.",
+        "Update cron task fields like schedule, prompt, and enabled status.",
         {
           id: z.string().min(1),
           name: z.string().min(1).optional(),
@@ -74,7 +72,6 @@ export function createCronMcpServer(engine: CronEngine) {
           interval_minutes: z.number().positive().optional(),
           run_at: z.string().min(1).optional(),
           cron_expression: z.string().min(1).optional(),
-          model: z.union([z.string().min(1), z.null()]).optional(),
           notify: z.enum(["auto", "never"]).optional(),
           max_turns: z.union([z.number().int().positive(), z.null()]).optional(),
           enabled: z.boolean().optional(),
@@ -86,9 +83,6 @@ export function createCronMcpServer(engine: CronEngine) {
           }
           if (args.prompt !== undefined) {
             updates.prompt = args.prompt;
-          }
-          if (args.model !== undefined) {
-            updates.model = args.model;
           }
           if (args.notify !== undefined) {
             updates.notify = args.notify;
@@ -175,7 +169,6 @@ function toTaskSummary(task: CronTask) {
     name: task.name,
     enabled: task.enabled,
     notify: task.notify,
-    model: task.model ?? "haiku",
     maxTurns: task.maxTurns ?? 10,
     schedule:
       task.schedule.type === "interval"

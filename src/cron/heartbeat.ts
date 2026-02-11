@@ -1,6 +1,5 @@
 import {
   CRON_DEFAULT_MAX_TURNS,
-  CRON_DEFAULT_MODEL,
   CRON_DEFAULT_NOTIFY_MODE,
   HEARTBEAT_TASK_ID,
   type CronTask,
@@ -10,11 +9,9 @@ export const DEFAULT_HEARTBEAT_INTERVAL_MINUTES = 30;
 
 export function createHeartbeatTask(options?: {
   intervalMinutes?: number;
-  model?: string;
   enabled?: boolean;
 }): CronTask {
   const intervalMinutes = options?.intervalMinutes ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES;
-  const model = options?.model?.trim() || CRON_DEFAULT_MODEL;
 
   return {
     id: HEARTBEAT_TASK_ID,
@@ -24,7 +21,6 @@ export function createHeartbeatTask(options?: {
       type: "interval",
       intervalMs: Math.max(1, intervalMinutes) * 60_000,
     },
-    model,
     notify: CRON_DEFAULT_NOTIFY_MODE,
     maxTurns: CRON_DEFAULT_MAX_TURNS,
     enabled: options?.enabled ?? true,

@@ -390,7 +390,7 @@ export class CronEngine {
       const runResult = await this.queryRunner({
         taskId: task.id,
         prompt: task.prompt,
-        model: task.model ?? CRON_DEFAULT_MODEL,
+        model: CRON_DEFAULT_MODEL,
         abortSignal: abortController.signal,
       });
       result = runResult.result;
@@ -514,7 +514,6 @@ function createTaskFromInput(input: CronTaskCreateInput): CronTask {
   const name = requireTrimmed(input.name, "name");
   const prompt = requireTrimmed(input.prompt, "prompt");
   const schedule = normalizeSchedule(input.schedule);
-  const model = normalizeOptionalString(input.model, "model") ?? CRON_DEFAULT_MODEL;
   const maxTurns = normalizePositiveInteger(input.maxTurns, "maxTurns") ?? CRON_DEFAULT_MAX_TURNS;
   const notify = input.notify ?? CRON_DEFAULT_NOTIFY_MODE;
   validateNotifyMode(notify);
@@ -524,7 +523,6 @@ function createTaskFromInput(input: CronTaskCreateInput): CronTask {
     name,
     prompt,
     schedule,
-    model,
     notify,
     maxTurns,
     enabled: input.enabled ?? true,
@@ -543,10 +541,6 @@ function applyTaskUpdates(task: CronTask, updates: CronTaskUpdateInput): CronTas
   }
   if (updates.schedule !== undefined) {
     next.schedule = normalizeSchedule(updates.schedule);
-  }
-  if (updates.model !== undefined) {
-    next.model =
-      updates.model === null ? undefined : normalizeOptionalString(updates.model, "model");
   }
   if (updates.notify !== undefined) {
     validateNotifyMode(updates.notify);
@@ -599,17 +593,6 @@ function normalizeSchedule(schedule: CronSchedule): CronSchedule {
   }
 
   throw new Error("Unsupported schedule type.");
-}
-
-function normalizeOptionalString(value: string | undefined, field: string): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error(`${field} must be a non-empty string.`);
-  }
-  return trimmed;
 }
 
 function requireTrimmed(value: string, field: string): string {

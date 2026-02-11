@@ -3,6 +3,7 @@ name: heartbeat
 description: Regular heartbeat check
 context: fork
 agent: general-purpose
+model: sonnet
 disable-model-invocation: true
 ---
 

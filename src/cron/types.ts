@@ -10,7 +10,6 @@ export interface CronTask {
   name: string;
   prompt: string;
   schedule: CronSchedule;
-  model?: string;
   notify: CronNotifyMode;
   maxTurns?: number;
   enabled: boolean;
@@ -23,7 +22,6 @@ export interface CronTaskCreateInput {
   name: string;
   prompt: string;
   schedule: CronSchedule;
-  model?: string;
   notify?: CronNotifyMode;
   maxTurns?: number;
   enabled?: boolean;
@@ -33,7 +31,6 @@ export interface CronTaskUpdateInput {
   name?: string;
   prompt?: string;
   schedule?: CronSchedule;
-  model?: string | null;
   notify?: CronNotifyMode;
   maxTurns?: number | null;
   enabled?: boolean;

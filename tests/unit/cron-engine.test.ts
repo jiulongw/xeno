@@ -43,7 +43,6 @@ describe("CronEngine", () => {
         type: "once",
         runAt: new Date(Date.now() + 2_000).toISOString(),
       },
-      model: "haiku",
       notify: "auto",
       maxTurns: 10,
       enabled: true,
@@ -69,6 +68,7 @@ describe("CronEngine", () => {
     await engine.stop();
 
     expect(queryCalls.length).toBe(1);
+    expect(queryCalls[0]?.model).toBe("haiku");
     expect(events.length).toBe(1);
 
     const runtimeTask = engine.listTasks().find((task) => task.id === "once-task");
@@ -113,7 +113,6 @@ describe("CronEngine", () => {
         type: "cron_expression",
         cronExpression: "* * * * * *",
       },
-      model: "haiku",
       notify: "auto",
       maxTurns: 10,
       enabled: true,
@@ -161,11 +160,9 @@ describe("CronEngine", () => {
     const updated = await engine.updateTask(created.id, {
       enabled: false,
       notify: "auto",
-      model: null,
     });
     expect(updated?.enabled).toBe(false);
     expect(updated?.notify).toBe("auto");
-    expect(updated?.model).toBeUndefined();
 
     const removed = await engine.deleteTask(created.id);
     expect(removed).toBe(true);
