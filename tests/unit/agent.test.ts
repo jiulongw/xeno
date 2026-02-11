@@ -87,4 +87,19 @@ describe("Agent session last_channel", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("does not persist last_channel when channelId is omitted", () => {
+    const home = createTempHome();
+    const agent = new Agent(home);
+
+    try {
+      agent.updateLastChannel({
+        type: "console",
+      });
+
+      expect(agent.getLastChannel()).toBeNull();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });

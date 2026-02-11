@@ -26,6 +26,8 @@ import type {
   UserMessageHandler,
 } from "../service";
 
+const CONSOLE_CHANNEL_ID = "default";
+
 export interface ConsolePlatformOptions {
   home: string;
   agent: Agent;
@@ -156,6 +158,7 @@ export class ConsolePlatform implements ChatService {
             content: userInput,
             context: {
               type: "console",
+              channelId: CONSOLE_CHANNEL_ID,
               metadata: { home: this.home },
             },
           };

@@ -15,6 +15,8 @@ import { GatewayRpcClient } from "./ipc/gateway-rpc";
 import { logger } from "./logger";
 import type { Attachment } from "./media";
 
+const CONSOLE_CHANNEL_ID = "default";
+
 export async function runConsoleClient(home: string): Promise<void> {
   const rpcClient = new GatewayRpcClient(home);
   const platformLogger = logger.child({ service: "console-client", home });
@@ -234,6 +236,7 @@ export async function runConsoleClient(home: string): Promise<void> {
           userInput,
           {
             type: "console",
+            channelId: CONSOLE_CHANNEL_ID,
             metadata: { home },
           },
           {
