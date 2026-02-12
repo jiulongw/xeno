@@ -108,9 +108,7 @@ export class Gateway {
       throw new Error("Cron query aborted.");
     }
 
-    await this.waitForActiveQueryToFinish(request.abortSignal);
-
-    this.activeQuery = true;
+    await this.acquireActiveQuery(request.abortSignal);
     const startedAt = Date.now();
     let streamed = "";
     let fallbackFinal = "";
@@ -247,15 +245,18 @@ export class Gateway {
     };
 
     if (this.activeQuery) {
-      await service.sendMessage(
-        "A request is already running. Press Ctrl-C to abort it.",
-        false,
-        responseOptions,
-      );
-      return;
+      try {
+        await service.sendMessage(
+          "Busy with another task right now. I queued your message and will reply when it finishes.",
+          false,
+          responseOptions,
+        );
+      } catch (error) {
+        logger.error({ error, service: service.type }, "Failed to send queued notice");
+      }
     }
 
-    this.activeQuery = true;
+    await this.acquireActiveQuery();
     let streamed = "";
     let fallbackFinal = "";
     const command = parseSlashCommand(inbound.content);
@@ -371,7 +372,7 @@ export class Gateway {
     return { target };
   }
 
-  private async waitForActiveQueryToFinish(abortSignal?: AbortSignal): Promise<void> {
+  private async acquireActiveQuery(abortSignal?: AbortSignal): Promise<void> {
     while (this.activeQuery) {
       if (this.shuttingDown) {
         throw new Error("Gateway is shutting down.");
@@ -384,6 +385,15 @@ export class Gateway {
         setTimeout(resolve, 50);
       });
     }
+
+    if (this.shuttingDown) {
+      throw new Error("Gateway is shutting down.");
+    }
+    if (abortSignal?.aborted) {
+      throw new Error("Cron query aborted.");
+    }
+
+    this.activeQuery = true;
   }
 }
 

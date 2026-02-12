@@ -102,7 +102,7 @@ describe("Gateway", () => {
     ]);
   });
 
-  test("rejects a second request while one is active", async () => {
+  test("queues a second request while one is active", async () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 80 });
     const gateway = new Gateway({
       home: "/tmp/test-home",
@@ -119,10 +119,13 @@ describe("Gateway", () => {
 
     expect(secondService.messages).toEqual([
       {
-        content: "A request is already running. Press Ctrl-C to abort it.",
+        content:
+          "Busy with another task right now. I queued your message and will reply when it finishes.",
         isPartial: false,
         options: { reason: "response" },
       },
+      { content: "second", isPartial: true, options: { reason: "response" } },
+      { content: "second", isPartial: false, options: { reason: "response" } },
     ]);
   });
 

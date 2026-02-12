@@ -6,9 +6,9 @@ import type {
   SDKMessage,
   SDKResultMessage,
   SDKSystemMessage,
-  HookCallbackMatcher,
   Options,
   McpServerConfig,
+  HookCallbackMatcher,
 } from "@anthropic-ai/claude-agent-sdk";
 import pino from "pino";
 import type { PlatformContext, PlatformType } from "./chat/service";
@@ -46,6 +46,39 @@ export interface AgentRuntime {
   getConversationHistory(): Promise<ConversationTurn[]>;
   query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage>;
   abort(): void;
+}
+
+type SessionType = "new" | "resume" | "compact";
+
+interface AugmentPromptOptions {
+  platformContext?: PlatformContext;
+  cronContext?: CronContext;
+  attachments?: Attachment[];
+}
+
+class DeveloperSectionBuilder {
+  private readonly lines: string[] = [];
+
+  push(line: string): this {
+    if (line.length > 0) {
+      this.lines.push(line);
+    }
+    return this;
+  }
+
+  pushAll(lines: string[]): this {
+    for (const line of lines) {
+      this.push(line);
+    }
+    return this;
+  }
+
+  build(): string {
+    if (this.lines.length === 0) {
+      return "";
+    }
+    return `<developer>${this.lines.join("\n")}</developer>`;
+  }
 }
 
 export class Agent implements AgentRuntime {
@@ -165,8 +198,15 @@ export class Agent implements AgentRuntime {
     const { includePartialMessages, mcpServers, platformContext, cronContext, attachments } =
       options || {};
 
+    let compactCalled = false;
+
     const preCompactHook: HookCallbackMatcher = {
-      hooks: [this.preCompactHook],
+      hooks: [
+        async () => {
+          compactCalled = true;
+          return {};
+        },
+      ],
     };
 
     const queryOptions: Options = {
@@ -191,18 +231,22 @@ export class Agent implements AgentRuntime {
       queryOptions.model = cronContext.model;
     }
 
+    let sessionType: SessionType = "resume";
+
     if (sessionId) {
       queryOptions.resume = sessionId;
       this.logger.info("Resuming session: %s", sessionId);
     } else {
       this.logger.info("Starting new session");
+      sessionType = "new";
     }
 
-    const prompt = this.augmentPrompt(userPrompt, {
+    const prompt = this.augmentPrompt(userPrompt, sessionType, {
       platformContext,
       cronContext,
       attachments,
     });
+
     const stream = query({ prompt, options: queryOptions });
 
     try {
@@ -220,6 +264,21 @@ export class Agent implements AgentRuntime {
 
         yield message;
       }
+
+      if (compactCalled) {
+        this.logger.info("Session was compacted. Reloading memory...");
+        const stream = query({
+          prompt:
+            "<developer>Session was compacted. You should bring your memory back.</developer>",
+          options: queryOptions,
+        });
+        for await (const message of stream) {
+          if (message.type === "result") {
+            this.logResultStats(message, queryOptions.model);
+          }
+        }
+        this.logger.info("Memory reloaded");
+      }
     } finally {
       this.abortController = null;
     }
@@ -232,64 +291,88 @@ export class Agent implements AgentRuntime {
     }
   }
 
-  private async preCompactHook() {
-    this.logger.info("PreCompact hook triggered");
-
-    return {
-      systemMessage:
-        "The session is about to be compacted (summarized). Now it is a good time to reflect and update your long-term memory.",
-    };
-  }
-
   private augmentPrompt(
     userPrompt: string,
-    {
-      platformContext,
-      cronContext,
-      attachments,
-    }: { platformContext?: PlatformContext; cronContext?: CronContext; attachments?: Attachment[] },
+    sessionType: SessionType,
+    { platformContext, cronContext, attachments }: AugmentPromptOptions,
   ): string {
+    const devHeader = new DeveloperSectionBuilder();
+    const devFooter = new DeveloperSectionBuilder();
     let basePrompt = userPrompt;
 
     if (platformContext) {
       const name = platformContext.metadata?.firstName || platformContext.metadata?.username;
-      let platformPrompt;
       if (name) {
-        platformPrompt = `message from ${name} on ${platformContext.type}`;
-      } else {
-        platformPrompt = `message from ${platformContext.type}`;
+        devHeader.push(`message from ${name} on ${platformContext.type}`);
       }
-      basePrompt = `<developer>${platformPrompt}</developer>\n\n${userPrompt}`;
+    }
+
+    if (sessionType === "new") {
+      devHeader.push("This is a new session, wake up, get oriented first.");
     }
 
     if (cronContext) {
-      const now = new Date().toISOString();
+      const timeContext = this.getLocalTimeContext();
+      const cronArgs = [`now:${timeContext.nowUtcIso}`, `local_now:${timeContext.nowLocalIso}`];
       if (cronContext.taskId === HEARTBEAT_TASK_ID) {
-        basePrompt = `/heartbeat now:${now} ${userPrompt}`;
+        basePrompt = `/heartbeat ${cronArgs.join(" ")} ${basePrompt}`;
       } else {
-        basePrompt = `/run-cron-task task_id:${cronContext.taskId} now:${now} ${userPrompt}`;
+        basePrompt = `/run-cron-task task_id:${cronContext.taskId} ${cronArgs.join(" ")} ${basePrompt}`;
       }
     }
 
-    if (!attachments || attachments.length === 0) {
-      return basePrompt;
+    if (attachments && attachments.length > 0) {
+      const lines = attachments.map((attachment, index) => {
+        const fileName = attachment.fileName || basename(attachment.path);
+        const caption = attachment.caption;
+        const details = [
+          `type=${attachment.type}`,
+          `file_name=${fileName}`,
+          `path=${attachment.path}`,
+        ];
+        if (caption) {
+          details.push(`caption=${caption}`);
+        }
+        return `${index + 1}. ${details.join(", ")}`;
+      });
+
+      devFooter.push(
+        "This message includes attachments. Use the Read tool to inspect files as needed.",
+      );
+      devFooter.pushAll(lines);
     }
 
-    const lines = attachments.map((attachment, index) => {
-      const fileName = attachment.fileName?.trim() || basename(attachment.path);
-      const caption = attachment.caption?.trim();
-      const details = [
-        `type=${attachment.type}`,
-        `file_name=${fileName}`,
-        `path=${attachment.path}`,
-      ];
-      if (caption) {
-        details.push(`caption=${caption}`);
-      }
-      return `${index + 1}. ${details.join(", ")}`;
-    });
+    return [devHeader.build(), basePrompt, devFooter.build()]
+      .filter((part) => part.length > 0)
+      .join("\n\n");
+  }
 
-    return `${basePrompt}\n\n<developer>This user message includes local attachments. Use the Read tool to inspect files as needed.\n${lines.join("\n")}</developer>`;
+  private getLocalTimeContext(date: Date = new Date()): {
+    nowUtcIso: string;
+    nowLocalIso: string;
+  } {
+    return {
+      nowUtcIso: date.toISOString(),
+      nowLocalIso: this.toLocalIsoWithOffset(date),
+    };
+  }
+
+  private toLocalIsoWithOffset(date: Date): string {
+    const pad = (value: number): string => String(value).padStart(2, "0");
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+    const seconds = pad(date.getSeconds());
+
+    const offsetMinutes = -date.getTimezoneOffset();
+    const sign = offsetMinutes >= 0 ? "+" : "-";
+    const absOffsetMinutes = Math.abs(offsetMinutes);
+    const offsetHours = pad(Math.floor(absOffsetMinutes / 60));
+    const offsetMins = pad(absOffsetMinutes % 60);
+
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${sign}${offsetHours}:${offsetMins}`;
   }
 
   private get sessionFilePath(): string {

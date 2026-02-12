@@ -103,3 +103,60 @@ describe("Agent session last_channel", () => {
     }
   });
 });
+
+describe("Agent augmentPrompt cron context", () => {
+  test("adds explicit timezone-aware fields for run-cron-task", () => {
+    const home = createTempHome();
+    const agent = new Agent(home);
+
+    try {
+      const prompt = (
+        agent as unknown as {
+          augmentPrompt: (
+            userPrompt: string,
+            sessionType: "new" | "resume" | "compact",
+            options: { cronContext?: { taskId: string } },
+          ) => string;
+        }
+      ).augmentPrompt("summarize pending work", "resume", {
+        cronContext: { taskId: "daily-sync" },
+      });
+
+      expect(prompt).toContain("/run-cron-task task_id:daily-sync");
+      expect(prompt).toMatch(/\snow:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
+      expect(prompt).toMatch(/ local_now:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}/);
+      expect(prompt).not.toContain("local_tz:");
+      expect(prompt).not.toContain("local_hour:");
+      expect(prompt).not.toContain("local_period:");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("uses heartbeat command and includes timezone fields", () => {
+    const home = createTempHome();
+    const agent = new Agent(home);
+
+    try {
+      const prompt = (
+        agent as unknown as {
+          augmentPrompt: (
+            userPrompt: string,
+            sessionType: "new" | "resume" | "compact",
+            options: { cronContext?: { taskId: string } },
+          ) => string;
+        }
+      ).augmentPrompt("check status", "resume", {
+        cronContext: { taskId: "__heartbeat__" },
+      });
+
+      expect(prompt).toContain("/heartbeat ");
+      expect(prompt).toContain("now:");
+      expect(prompt).toContain("local_now:");
+      expect(prompt).not.toContain("local_tz:");
+      expect(prompt).not.toContain("local_hour:");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
