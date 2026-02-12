@@ -204,6 +204,11 @@ async function runInstall(home: string): Promise<void> {
   );
 }
 
+async function runCreateHome(home: string): Promise<void> {
+  await createHome(home);
+  process.stdout.write(`Home directory initialized at ${home}\n`);
+}
+
 async function runUninstall(): Promise<void> {
   const result = await uninstallLaunchAgent();
   process.stdout.write(`Uninstalled LaunchAgent ${result.label} from ${result.plistPath}.\n`);
@@ -211,7 +216,17 @@ async function runUninstall(): Promise<void> {
 
 async function main(): Promise<void> {
   try {
-    const { command, home: homeFromArgs } = parseArgs(process.argv.slice(2));
+    const { command, home: homeFromArgs, positionalArg } = parseArgs(process.argv.slice(2));
+
+    if (command === "create-home") {
+      const target = positionalArg || homeFromArgs;
+      if (!target) {
+        throw new Error("Usage: xeno create-home <path>");
+      }
+      const { resolve } = await import("node:path");
+      await runCreateHome(resolve(target));
+      return;
+    }
 
     if (command === "install") {
       const config = await loadUserConfig();

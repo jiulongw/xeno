@@ -1,40 +1,113 @@
 # xeno
 
-Bun CLI app with commands:
+A personal AI agent runtime for macOS. Inspired by [OpenClaw](https://github.com/nickclaw/openclaw), xeno takes a simpler approach: it runs as a lightweight wrapper around [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and focuses on doing one thing well — keeping a persistent, autonomous agent running on your Mac.
 
-- `serve`: start the gateway service (enables configured chat services such as Telegram), start cron scheduling (including heartbeat), and host a Unix socket JSON-RPC endpoint
-- `console`: attach a simple interactive terminal chat console to a running gateway via Unix socket JSON-RPC, with a bottom input prompt (`/hb` runs heartbeat immediately)
-- `install`: macOS-only command to install and start a LaunchAgent (`cc.novacore.xeno.gateway`) for `xeno serve`, write stdout/stderr logs under `~/.xeno/logs`, and inject Bun's runtime directory into LaunchAgent `PATH`
-- `uninstall`: macOS-only command to stop and remove the LaunchAgent (`cc.novacore.xeno.gateway`)
+xeno requires a pre-authorized Claude Code installation with credentials stored in the macOS Keychain. It ships with pre-installed skills that use AppleScript to access essential macOS apps such as Mail, Calendar, Notes, Reminders, and more.
+
+## Installation
+
+### 1. Install xeno
+
+```bash
+brew install jiulongw/tap/xeno
+```
+
+### 2. Create an agent home directory
+
+The home directory is where xeno stores the agent's configuration, memory, and skills. Choose a path and run:
+
+```bash
+xeno create-home ~/xeno-home
+```
+
+This scaffolds the directory with default template files (prompt files, skill definitions, and Claude settings). Existing files are never overwritten.
+
+### 3. Configure xeno
+
+The previous step created a configuration file at `~/.config/xeno/config.json` with `default_home` already pointing to your agent home directory. Edit it to add your Telegram bot token:
+
+```json
+{
+  "default_home": "~/xeno-home",
+  "telegram_bot_token": "YOUR_BOT_TOKEN",
+  "telegram_allowed_users": ["YOUR_USER_ID"],
+  "heartbeat_interval_minutes": 30,
+  "heartbeat_enabled": true
+}
+```
+
+- `default_home` — path to the agent home directory (set automatically by `create-home`).
+- `telegram_bot_token` — token for the Telegram bot that xeno uses as its chat interface.
+- `telegram_allowed_users` — array of Telegram user ID strings allowed to interact with the bot. Only listed users can send messages; all others are rejected.
+- `heartbeat_interval_minutes` — interval in minutes between heartbeat runs (default: `30`).
+- `heartbeat_enabled` — set to `false` to disable the built-in heartbeat task (default: `true`).
+
+#### Obtaining a Telegram bot token
+
+1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
+2. Send `/newbot` and follow the prompts to choose a name and username.
+3. BotFather will reply with an API token (e.g., `123456:ABC-DEF...`). Copy this value into your config file.
+
+### 4. Install the LaunchAgent
+
+```bash
+xeno install
+```
+
+This registers xeno as a macOS LaunchAgent (`cc.novacore.xeno.gateway`) so that it starts automatically when you log in. An active login session is required — xeno will not start after a reboot until you log in for the first time, since it runs as a LaunchAgent rather than a LaunchDaemon.
+
+Run `xeno install` again whenever you change the configuration file to pick up the new settings.
+
+### 5. Upgrading
+
+When you upgrade xeno to a new version:
+
+```bash
+brew upgrade xeno
+xeno install
+```
+
+Always run `xeno install` after upgrading to restart the service with the new binary.
+
+### Uninstalling
+
+To stop the service and remove the LaunchAgent:
+
+```bash
+xeno uninstall
+```
+
+## Commands
+
+- `serve` — start the gateway service (enables configured chat services such as Telegram), start cron scheduling (including heartbeat), and host a Unix socket JSON-RPC endpoint
+- `console` — attach an interactive terminal chat console to a running `serve` process via Unix socket JSON-RPC (`/hb` triggers heartbeat immediately)
+- `create-home <path>` — create and initialize an agent home directory
+- `install` — install and start a macOS LaunchAgent for `xeno serve`
+- `uninstall` — stop and remove the macOS LaunchAgent
 
 `--home <string>` is optional. If omitted, xeno uses `default_home` from `~/.config/xeno/config.json`. Resolved home paths are normalized to absolute paths.
 
-## Home directory bootstrap
+## Home directory
 
-Before running `serve` or `console`, xeno creates the resolved home directory (if needed) and initializes missing files:
+The agent home directory contains the following files (scaffolded from templates on first creation):
 
-- `CLAUDE.md`
-- `BOOTSTRAP.md`
-- `HEARTBEAT.md`
-- `IDENTITY.md`
-- `MEMORY.md`
-- `SOUL.md`
-- `TOOLS.md`
-- `USER.md`
+- `CLAUDE.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`, `USER.md`
 - `.claude/settings.local.json`
 - `.claude/skills/heartbeat/SKILL.md`
 - `.claude/skills/run-cron-task/SKILL.md`
 - `memory/` directory
 
-Existing files are preserved.
+Existing files are preserved when re-running `create-home` or starting the service.
 
-## Install
+## Development
+
+### Install dependencies
 
 ```bash
 bun install
 ```
 
-## Build
+### Build
 
 ```bash
 bun run bundle
@@ -44,7 +117,7 @@ Build output:
 
 - `bin/xeno.js`
 
-## Run from source
+### Run from source
 
 ```bash
 bun run src/index.ts serve --home /tmp/xeno

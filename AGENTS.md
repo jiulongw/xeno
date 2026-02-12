@@ -12,6 +12,7 @@
 - Commands:
   - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, starts the cron engine, and supports graceful shutdown on `Ctrl-C`/`SIGTERM`
   - `console`: interactive terminal chat console that attaches to a running `serve` process over JSON-RPC, keeps a simple bottom input prompt, supports graceful shutdown on `Ctrl-C`/`SIGTERM`, abort support, and `/hb` to trigger heartbeat immediately
+  - `create-home <path>`: creates and initializes an agent home directory at the given path, scaffolding template files without overwriting existing ones
   - `install`: macOS-only command that writes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist` and loads it via `launchctl` to run `xeno serve` (entrypoint resolved from the running program path at install time); stdout/stderr are written to timestamped files under `~/.xeno/logs`; plist `EnvironmentVariables.PATH` includes Bun runtime directory
   - `uninstall`: macOS-only command that unloads and removes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist`
 - `--home <string>` is optional. If omitted, `default_home` from `~/.config/xeno/config.json` is used. The resolved home path is normalized to an absolute path.

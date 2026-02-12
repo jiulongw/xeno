@@ -1,0 +1,7 @@
+{
+  "default_home": "",
+  "telegram_bot_token": "",
+  "telegram_allowed_users": ["YOUR_USER_ID"],
+  "heartbeat_interval_minutes": 30,
+  "heartbeat_enabled": true
+}

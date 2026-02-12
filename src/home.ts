@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import agentsTemplate from "../template/CLAUDE.md" with { type: "text" };
@@ -11,6 +12,7 @@ import soulTemplate from "../template/SOUL.md" with { type: "text" };
 import toolsTemplate from "../template/TOOLS.md" with { type: "text" };
 import userTemplate from "../template/USER.md" with { type: "text" };
 import claudeSettingsTemplate from "../template/claude.settings.json";
+import configTemplate from "../template/config.json";
 import heartbeatSkill from "../template/skills/heartbeat/SKILL.md" with { type: "text" };
 import runCronTaskSkill from "../template/skills/run-cron-task/SKILL.md" with { type: "text" };
 
@@ -51,4 +53,19 @@ export async function createHome(homeDir: string): Promise<void> {
     await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, template.content, "utf-8");
   }
+
+  await scaffoldConfig(homeDir);
+}
+
+async function scaffoldConfig(homeDir: string): Promise<void> {
+  const configPath = join(homedir(), ".config", "xeno", "config.json");
+
+  if (existsSync(configPath)) {
+    return;
+  }
+
+  const config = { ...configTemplate, default_home: homeDir };
+
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, JSON.stringify(config, null, 2) + "\n", "utf-8");
 }
