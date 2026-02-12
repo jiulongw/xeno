@@ -64,6 +64,7 @@
   - `.claude/settings.local.json`
   - `.claude/skills/heartbeat/SKILL.md`
   - `.claude/skills/run-cron-task/SKILL.md`
+  - `.claude/skills/applescript/SKILL.md` (+ `references/calendar.md`, `mail.md`, `notes.md`, `reminders.md`)
 - `memory/` is created if missing.
 - Existing files are never overwritten.
 

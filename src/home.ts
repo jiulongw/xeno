@@ -15,6 +15,11 @@ import claudeSettingsTemplate from "../template/claude.settings.json";
 import configTemplate from "../template/config.json";
 import heartbeatSkill from "../template/skills/heartbeat/SKILL.md" with { type: "text" };
 import runCronTaskSkill from "../template/skills/run-cron-task/SKILL.md" with { type: "text" };
+import applescriptSkill from "../template/skills/applescript/SKILL.md" with { type: "text" };
+import applescriptCalendarRef from "../template/skills/applescript/references/calendar.md" with { type: "text" };
+import applescriptMailRef from "../template/skills/applescript/references/mail.md" with { type: "text" };
+import applescriptNotesRef from "../template/skills/applescript/references/notes.md" with { type: "text" };
+import applescriptRemindersRef from "../template/skills/applescript/references/reminders.md" with { type: "text" };
 
 type TemplateFile = {
   relativePath: string;
@@ -36,6 +41,17 @@ const TEMPLATE_FILES: TemplateFile[] = [
   },
   { relativePath: ".claude/skills/heartbeat/SKILL.md", content: heartbeatSkill },
   { relativePath: ".claude/skills/run-cron-task/SKILL.md", content: runCronTaskSkill },
+  { relativePath: ".claude/skills/applescript/SKILL.md", content: applescriptSkill },
+  {
+    relativePath: ".claude/skills/applescript/references/calendar.md",
+    content: applescriptCalendarRef,
+  },
+  { relativePath: ".claude/skills/applescript/references/mail.md", content: applescriptMailRef },
+  { relativePath: ".claude/skills/applescript/references/notes.md", content: applescriptNotesRef },
+  {
+    relativePath: ".claude/skills/applescript/references/reminders.md",
+    content: applescriptRemindersRef,
+  },
 ];
 
 export async function createHome(homeDir: string): Promise<void> {
