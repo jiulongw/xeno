@@ -152,6 +152,15 @@ describe("Gateway RPC integration", () => {
           };
         }
 
+        if (method === "gateway.new_session") {
+          return {
+            ok: true,
+            message: "New session task completed.",
+            result: "NEW_SESSION_OK",
+            durationMs: 15,
+          };
+        }
+
         if (method === "gateway.query") {
           const requestId = (params as { requestId: string }).requestId;
           queueMicrotask(() => {
@@ -211,6 +220,14 @@ describe("Gateway RPC integration", () => {
       message: "Heartbeat completed.",
       result: "HEARTBEAT_OK",
       durationMs: 12,
+    });
+
+    const newSession = await client.newSession();
+    expect(newSession).toEqual({
+      ok: true,
+      message: "New session task completed.",
+      result: "NEW_SESSION_OK",
+      durationMs: 15,
     });
   });
 });

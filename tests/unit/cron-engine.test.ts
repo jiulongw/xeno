@@ -9,8 +9,9 @@ import {
   type CronTaskExecutionResult,
 } from "../../src/cron/engine";
 import { createHeartbeatTask } from "../../src/cron/heartbeat";
+import { createWeeklyNewSessionTask } from "../../src/cron/new-session";
 import { CronStore } from "../../src/cron/store";
-import { HEARTBEAT_TASK_ID } from "../../src/cron/types";
+import { HEARTBEAT_TASK_ID, WEEKLY_NEW_SESSION_TASK_ID } from "../../src/cron/types";
 
 const tempDirs: string[] = [];
 
@@ -81,7 +82,7 @@ describe("CronEngine", () => {
     expect(persistedTask?.lastResult).toBe("CRON_OK");
   });
 
-  test("includes heartbeat as an in-memory built-in task only", async () => {
+  test("includes system tasks as in-memory built-ins only", async () => {
     const home = await makeTempHome();
     const store = new CronStore(home);
     const engine = new CronEngine({
@@ -91,6 +92,7 @@ describe("CronEngine", () => {
         intervalMinutes: 60,
         enabled: true,
       }),
+      systemTasks: [createWeeklyNewSessionTask()],
       queryRunner: async () => ({ result: "HEARTBEAT_OK", durationMs: 1 }),
     });
 
@@ -99,6 +101,7 @@ describe("CronEngine", () => {
     await engine.stop();
 
     expect(tasks.some((task) => task.id === HEARTBEAT_TASK_ID)).toBe(true);
+    expect(tasks.some((task) => task.id === WEEKLY_NEW_SESSION_TASK_ID)).toBe(true);
     expect(await store.listTasks()).toEqual([]);
   });
 
@@ -191,5 +194,23 @@ describe("CronEngine", () => {
     expect(outcome).not.toBeNull();
     expect(outcome?.task.id).toBe(HEARTBEAT_TASK_ID);
     expect(outcome?.result).toBe("HEARTBEAT_OK");
+  });
+
+  test("system task IDs cannot be updated or deleted", async () => {
+    const home = await makeTempHome();
+    const store = new CronStore(home);
+    const engine = new CronEngine({
+      home,
+      store,
+      systemTasks: [createWeeklyNewSessionTask()],
+      queryRunner: async () => ({ result: "OK", durationMs: 1 }),
+    });
+
+    await engine.start();
+    await expect(engine.updateTask(WEEKLY_NEW_SESSION_TASK_ID, { enabled: false })).rejects.toThrow(
+      "built-in",
+    );
+    await expect(engine.deleteTask(WEEKLY_NEW_SESSION_TASK_ID)).rejects.toThrow("built-in");
+    await engine.stop();
   });
 });

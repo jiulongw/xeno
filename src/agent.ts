@@ -13,7 +13,7 @@ import type {
 import pino from "pino";
 import type { PlatformContext, PlatformType } from "./chat/service";
 import { logger } from "./logger";
-import { HEARTBEAT_TASK_ID } from "./cron/types";
+import { HEARTBEAT_TASK_ID, WEEKLY_NEW_SESSION_TASK_ID } from "./cron/types";
 import type { Attachment } from "./media";
 
 export interface QueryOptions {
@@ -108,6 +108,26 @@ export class Agent implements AgentRuntime {
       return null;
     }
     return { ...this.lastChannel };
+  }
+
+  clearMainSessionId(): void {
+    const existingSession = this.readSessionData() ?? {};
+    const existingSessionId = existingSession.main_session_id;
+
+    if (existingSessionId === null && this.sessionId === null) {
+      return;
+    }
+
+    try {
+      this.writeSessionData({
+        ...existingSession,
+        main_session_id: null,
+      });
+      this.sessionId = null;
+      this.logger.info("Cleared main_session_id from session state");
+    } catch (error) {
+      this.logger.error({ error }, "Failed to clear main_session_id");
+    }
   }
 
   updateLastChannel(context: PlatformContext): void {
@@ -316,6 +336,8 @@ export class Agent implements AgentRuntime {
       const cronArgs = [`now:${timeContext.nowUtcIso}`, `local_now:${timeContext.nowLocalIso}`];
       if (cronContext.taskId === HEARTBEAT_TASK_ID) {
         basePrompt = `/heartbeat ${cronArgs.join(" ")} ${basePrompt}`;
+      } else if (cronContext.taskId === WEEKLY_NEW_SESSION_TASK_ID) {
+        // Do nothing, we don't need to augment the prompt for this task.
       } else {
         basePrompt = `/run-cron-task task_id:${cronContext.taskId} ${cronArgs.join(" ")} ${basePrompt}`;
       }

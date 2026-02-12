@@ -6,7 +6,7 @@ import {
   CRON_DEFAULT_MAX_TURNS,
   CRON_DEFAULT_MODEL,
   CRON_DEFAULT_NOTIFY_MODE,
-  HEARTBEAT_TASK_ID,
+  isSystemCronTaskId,
   type CronSchedule,
   type CronTask,
   type CronTaskCreateInput,
@@ -40,6 +40,7 @@ type CronEngineOptions = {
   home: string;
   store: CronStore;
   heartbeatTask?: CronTask;
+  systemTasks?: CronTask[];
   onResult?: (result: CronTaskExecutionResult) => Promise<void> | void;
   queryRunner?: QueryRunner;
 };
@@ -51,7 +52,7 @@ type TimerEntry =
 export class CronEngine {
   private readonly home: string;
   private readonly store: CronStore;
-  private readonly heartbeatTask: CronTask | null;
+  private readonly systemTasks: CronTask[];
   private readonly onResult:
     | ((result: CronTaskExecutionResult) => Promise<void> | void)
     | undefined;
@@ -75,7 +76,7 @@ export class CronEngine {
   constructor(options: CronEngineOptions) {
     this.home = options.home;
     this.store = options.store;
-    this.heartbeatTask = options.heartbeatTask ? cloneTask(options.heartbeatTask) : null;
+    this.systemTasks = this.collectSystemTasks(options);
     this.onResult = options.onResult;
     this.queryRunner = options.queryRunner ?? defaultQueryRunner;
     this.engineLogger = logger.child({ component: "cron-engine", home: this.home });
@@ -94,14 +95,17 @@ export class CronEngine {
 
       this.tasks.clear();
       for (const task of persistedTasks) {
-        if (task.id === HEARTBEAT_TASK_ID) {
+        if (isSystemCronTaskId(task.id)) {
           continue;
         }
         this.tasks.set(task.id, cloneTask(task));
       }
 
-      if (this.heartbeatTask?.enabled) {
-        this.tasks.set(this.heartbeatTask.id, cloneTask(this.heartbeatTask));
+      for (const task of this.systemTasks) {
+        if (!task.enabled) {
+          continue;
+        }
+        this.tasks.set(task.id, cloneTask(task));
       }
 
       this.started = true;
@@ -146,8 +150,8 @@ export class CronEngine {
   }
 
   async updateTask(id: string, updates: CronTaskUpdateInput): Promise<CronTask | null> {
-    if (id === HEARTBEAT_TASK_ID) {
-      throw new Error("Heartbeat task is built-in and cannot be updated.");
+    if (isSystemCronTaskId(id)) {
+      throw new Error(`System task ${id} is built-in and cannot be updated.`);
     }
 
     return this.withMutationLock(async () => {
@@ -170,8 +174,8 @@ export class CronEngine {
   }
 
   async deleteTask(id: string): Promise<boolean> {
-    if (id === HEARTBEAT_TASK_ID) {
-      throw new Error("Heartbeat task is built-in and cannot be deleted.");
+    if (isSystemCronTaskId(id)) {
+      throw new Error(`System task ${id} is built-in and cannot be deleted.`);
     }
 
     return this.withMutationLock(async () => {
@@ -504,10 +508,23 @@ export class CronEngine {
       }
     }
   }
+
+  private collectSystemTasks(options: CronEngineOptions): CronTask[] {
+    const tasksById = new Map<string, CronTask>();
+    if (options.heartbeatTask) {
+      tasksById.set(options.heartbeatTask.id, cloneTask(options.heartbeatTask));
+    }
+
+    for (const task of options.systemTasks ?? []) {
+      tasksById.set(task.id, cloneTask(task));
+    }
+
+    return [...tasksById.values()];
+  }
 }
 
 function isPersistentTask(taskId: string): boolean {
-  return taskId !== HEARTBEAT_TASK_ID;
+  return !isSystemCronTaskId(taskId);
 }
 
 function createTaskFromInput(input: CronTaskCreateInput): CronTask {

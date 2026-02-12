@@ -29,8 +29,9 @@ type GatewayAbortParams = {
 };
 
 type GatewayHeartbeatParams = Record<string, never>;
+type GatewayNewSessionParams = Record<string, never>;
 
-export interface GatewayHeartbeatResponse {
+export interface GatewayTaskTriggerResponse {
   ok: boolean;
   message: string;
   result?: string;
@@ -61,13 +62,15 @@ type ErrorNotification = {
 export interface GatewayRpcServerOptions {
   home: string;
   gateway: Gateway;
-  runHeartbeat?: () => Promise<GatewayHeartbeatResponse>;
+  runHeartbeat?: () => Promise<GatewayTaskTriggerResponse>;
+  runNewSession?: () => Promise<GatewayTaskTriggerResponse>;
 }
 
 export class GatewayRpcServer {
   private readonly home: string;
   private readonly gateway: Gateway;
-  private readonly runHeartbeat: (() => Promise<GatewayHeartbeatResponse>) | null;
+  private readonly runHeartbeat: (() => Promise<GatewayTaskTriggerResponse>) | null;
+  private readonly runNewSession: (() => Promise<GatewayTaskTriggerResponse>) | null;
   private readonly socketPath: string;
   private readonly rpcLogger;
 
@@ -78,6 +81,7 @@ export class GatewayRpcServer {
     this.home = options.home;
     this.gateway = options.gateway;
     this.runHeartbeat = options.runHeartbeat ?? null;
+    this.runNewSession = options.runNewSession ?? null;
     this.socketPath = getGatewaySocketPath(options.home);
     this.rpcLogger = logger.child({ component: "gateway-rpc", home: this.home });
   }
@@ -168,10 +172,22 @@ export class GatewayRpcServer {
           return {
             ok: false,
             message: "Heartbeat trigger is not available in this runtime.",
-          } satisfies GatewayHeartbeatResponse;
+          } satisfies GatewayTaskTriggerResponse;
         }
 
         return this.runHeartbeat();
+      }
+
+      if (method === "gateway.new_session") {
+        this.parseNewSessionParams(params);
+        if (!this.runNewSession) {
+          return {
+            ok: false,
+            message: "New session trigger is not available in this runtime.",
+          } satisfies GatewayTaskTriggerResponse;
+        }
+
+        return this.runNewSession();
       }
 
       throw new Error(`Method not found: ${method}`);
@@ -312,6 +328,18 @@ export class GatewayRpcServer {
     return {};
   }
 
+  private parseNewSessionParams(value: unknown): GatewayNewSessionParams {
+    if (value === undefined || value === null) {
+      return {};
+    }
+
+    if (typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("Invalid new_session params.");
+    }
+
+    return {};
+  }
+
   private async ensureSocketIsAvailable(): Promise<void> {
     if (!existsSync(this.socketPath)) {
       return;
@@ -427,10 +455,16 @@ export class GatewayRpcClient {
     await peer.request("gateway.abort", {});
   }
 
-  async heartbeat(): Promise<GatewayHeartbeatResponse> {
+  async heartbeat(): Promise<GatewayTaskTriggerResponse> {
     const peer = this.requirePeer();
     const result = await peer.request("gateway.heartbeat", {});
-    return this.parseHeartbeatResponse(result);
+    return this.parseTaskTriggerResponse(result, "heartbeat");
+  }
+
+  async newSession(): Promise<GatewayTaskTriggerResponse> {
+    const peer = this.requirePeer();
+    const result = await peer.request("gateway.new_session", {});
+    return this.parseTaskTriggerResponse(result, "new_session");
   }
 
   close(): void {
@@ -590,14 +624,17 @@ export class GatewayRpcClient {
     };
   }
 
-  private parseHeartbeatResponse(value: unknown): GatewayHeartbeatResponse {
+  private parseTaskTriggerResponse(
+    value: unknown,
+    trigger: "heartbeat" | "new_session",
+  ): GatewayTaskTriggerResponse {
     if (!value || typeof value !== "object") {
-      throw new Error("Invalid heartbeat response.");
+      throw new Error(`Invalid ${trigger} response.`);
     }
 
     const record = value as Record<string, unknown>;
     if (typeof record.ok !== "boolean" || typeof record.message !== "string") {
-      throw new Error("Invalid heartbeat response payload.");
+      throw new Error(`Invalid ${trigger} response payload.`);
     }
 
     return {

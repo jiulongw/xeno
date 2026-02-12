@@ -102,6 +102,45 @@ describe("Agent session last_channel", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("clearMainSessionId nulls main_session_id and keeps other session fields", () => {
+    const home = createTempHome();
+    const sessionPath = join(home, ".xeno", "session.json");
+
+    try {
+      mkdirSync(join(home, ".xeno"), { recursive: true });
+      writeFileSync(
+        sessionPath,
+        JSON.stringify(
+          {
+            main_session_id: "session-1",
+            last_channel: {
+              platform: "telegram",
+              channel_id: "1001",
+            },
+          },
+          null,
+          2,
+        ),
+      );
+
+      const agent = new Agent(home);
+      expect(agent.getSessionId()).toBe("session-1");
+
+      agent.clearMainSessionId();
+
+      expect(agent.getSessionId()).toBeNull();
+      expect(readJson(sessionPath)).toEqual({
+        main_session_id: null,
+        last_channel: {
+          platform: "telegram",
+          channel_id: "1001",
+        },
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Agent augmentPrompt cron context", () => {

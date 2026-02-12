@@ -19,8 +19,9 @@ import { installLaunchAgent, uninstallLaunchAgent } from "./launch-agent";
 import { logger } from "./logger";
 import { CronEngine, type CronTaskExecutionResult } from "./cron/engine";
 import { createHeartbeatTask } from "./cron/heartbeat";
+import { createWeeklyNewSessionTask } from "./cron/new-session";
 import { CronStore } from "./cron/store";
-import { HEARTBEAT_TASK_ID } from "./cron/types";
+import { HEARTBEAT_TASK_ID, WEEKLY_NEW_SESSION_TASK_ID } from "./cron/types";
 import { createCronMcpServer } from "./mcp/cron";
 import { createMessengerMcpServer } from "./mcp/messenger";
 
@@ -68,9 +69,19 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
           enabled: heartbeatEnabled,
         })
       : undefined,
+    systemTasks: [createWeeklyNewSessionTask()],
     queryRunner: async (request) => {
       if (!gateway) {
         throw new Error("Gateway is not initialized.");
+      }
+      if (request.taskId === WEEKLY_NEW_SESSION_TASK_ID) {
+        logger.info("Saving memory before session end...");
+        await gateway.runCronQuery({
+          ...request,
+          prompt: "Session is about to end. Save your memory now.",
+        });
+
+        agent.clearMainSessionId();
       }
       return gateway.runCronQuery({
         ...request,
@@ -109,6 +120,22 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
       return {
         ok: true,
         message: "Heartbeat completed.",
+        result: outcome.result,
+        durationMs: outcome.durationMs,
+      };
+    },
+    runNewSession: async () => {
+      const outcome = await cronEngine.runTaskNow(WEEKLY_NEW_SESSION_TASK_ID);
+      if (!outcome) {
+        return {
+          ok: false,
+          message: "New session task is unavailable or disabled.",
+        };
+      }
+
+      return {
+        ok: true,
+        message: "New session task completed.",
         result: outcome.result,
         durationMs: outcome.durationMs,
       };

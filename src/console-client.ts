@@ -98,30 +98,41 @@ export async function runConsoleClient(home: string): Promise<void> {
     shutdown("SIGTERM");
   });
 
-  const handleHeartbeat = async (): Promise<void> => {
-    addMessage("agent", "Running heartbeat...");
+  const handleTaskTrigger = async (options: {
+    startMessage: string;
+    okPrefix: string;
+    unavailablePrefix: string;
+    statsLabel: string;
+    trigger: () => Promise<{
+      ok: boolean;
+      message: string;
+      result?: string;
+      durationMs?: number;
+    }>;
+  }): Promise<void> => {
+    addMessage("agent", options.startMessage);
     activeQuery = true;
     abortingQuery = false;
 
     try {
-      const heartbeat = await rpcClient.heartbeat();
-      const body = heartbeat.result?.trim();
+      const response = await options.trigger();
+      const body = response.result?.trim();
       const message =
-        heartbeat.ok && body
-          ? `[heartbeat]\n${body}`
-          : heartbeat.ok
-            ? heartbeat.message
-            : `Heartbeat unavailable: ${heartbeat.message}`;
+        response.ok && body
+          ? `${options.okPrefix}\n${body}`
+          : response.ok
+            ? response.message
+            : `${options.unavailablePrefix}: ${response.message}`;
       addMessage("agent", message);
 
-      if (heartbeat.ok && typeof heartbeat.durationMs === "number") {
-        const seconds = (heartbeat.durationMs / 1000).toFixed(2);
-        addMessage("agent", `[stats] heartbeat duration=${seconds}s`);
+      if (response.ok && typeof response.durationMs === "number") {
+        const seconds = (response.durationMs / 1000).toFixed(2);
+        addMessage("agent", `[stats] ${options.statsLabel} duration=${seconds}s`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       addMessage("agent", `Error: ${message}`);
-      platformLogger.error({ error }, "Console heartbeat failed");
+      platformLogger.error({ error, trigger: options.statsLabel }, "Console trigger failed");
     } finally {
       activeQuery = false;
       abortingQuery = false;
@@ -212,7 +223,24 @@ export async function runConsoleClient(home: string): Promise<void> {
       }
 
       if (userInput === "/hb") {
-        void handleHeartbeat();
+        void handleTaskTrigger({
+          startMessage: "Running heartbeat...",
+          okPrefix: "[heartbeat]",
+          unavailablePrefix: "Heartbeat unavailable",
+          statsLabel: "heartbeat",
+          trigger: () => rpcClient.heartbeat(),
+        });
+        return;
+      }
+
+      if (userInput === "/new") {
+        void handleTaskTrigger({
+          startMessage: "Running new session task...",
+          okPrefix: "[new-session]",
+          unavailablePrefix: "New session task unavailable",
+          statsLabel: "new-session",
+          trigger: () => rpcClient.newSession(),
+        });
         return;
       }
 
