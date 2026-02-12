@@ -47,6 +47,7 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
 2. Send `/newbot` and follow the prompts to choose a name and username.
 3. BotFather will reply with an API token (e.g., `123456:ABC-DEF...`). Copy this value into your config file.
+4. To get your Telegram user ID, send a message to your bot. If the service is not installed yet, run `xeno serve` manually so the gateway can receive Telegram messages. If your ID is not listed in `telegram_allowed_users`, the bot replies with your user ID so you can add it to the config.
 
 ### 4. Install the LaunchAgent
 
