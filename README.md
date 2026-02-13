@@ -17,10 +17,10 @@ brew install jiulongw/tap/xeno
 The home directory is where xeno stores the agent's configuration, memory, and skills. Choose a path and run:
 
 ```bash
-xeno create-home ~/xeno-home
+xeno init ~/xeno-home
 ```
 
-This scaffolds the directory with default template files (prompt files, skill definitions, and Claude settings). Existing files are never overwritten.
+This scaffolds the directory with default template files (prompt files, skill definitions, and Claude settings). Re-running initialization overwrites `CLAUDE.md` and files under `.claude/skills/`, while other existing files are preserved.
 
 ### 3. Configure xeno
 
@@ -36,7 +36,7 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 }
 ```
 
-- `default_home` — path to the agent home directory (set automatically by `create-home`).
+- `default_home` — path to the agent home directory (set automatically by `init`).
 - `telegram_bot_token` — token for the Telegram bot that xeno uses as its chat interface.
 - `telegram_allowed_users` — array of Telegram user ID strings allowed to interact with the bot. Only listed users can send messages; all others are rejected.
 - `heartbeat_interval_minutes` — interval in minutes between heartbeat runs (default: `30`).
@@ -80,9 +80,9 @@ xeno uninstall
 
 ## Commands
 
-- `serve` — start the gateway service (enables configured chat services such as Telegram), start cron scheduling (including heartbeat), and host a Unix socket JSON-RPC endpoint
+- `serve` — start the gateway service (enables configured chat services such as Telegram), start cron scheduling (including heartbeat), and host a Unix socket JSON-RPC endpoint; exits with an error if another xeno process is already serving the same home socket
 - `console` — attach an interactive terminal chat console to a running `serve` process via Unix socket JSON-RPC (`/hb` triggers heartbeat immediately)
-- `create-home <path>` — create and initialize an agent home directory
+- `init <path>` — create and initialize an agent home directory
 - `install` — install and start a macOS LaunchAgent for `xeno serve`
 - `uninstall` — stop and remove the macOS LaunchAgent
 
@@ -99,7 +99,7 @@ The agent home directory contains the following files (scaffolded from templates
 - `.claude/skills/xeno-voice/SKILL.md` (with `scripts/xeno-voice`)
 - `memory/` directory
 
-Existing files are preserved when re-running `create-home` or starting the service.
+When re-running initialization, `CLAUDE.md` and files under `.claude/skills/` are refreshed from templates. Other existing files are preserved.
 
 ## Development
 

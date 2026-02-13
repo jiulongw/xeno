@@ -42,4 +42,16 @@ describe("parseArgs", () => {
       "Unknown argument: --bad",
     );
   });
+
+  test("parses init command with positional path", () => {
+    expect(parseArgs(["init", "/tmp/home"])).toEqual({
+      command: "init",
+      home: undefined,
+      positionalArg: "/tmp/home",
+    });
+  });
+
+  test("rejects unknown --upgrade flag", () => {
+    expect(() => parseArgs(["serve", "--upgrade"])).toThrow("Unknown argument: --upgrade");
+  });
 });

@@ -15,6 +15,7 @@ import {
 import { Gateway } from "./gateway";
 import { createHome } from "./home";
 import { GatewayRpcServer } from "./ipc/gateway-rpc";
+import { getGatewaySocketPath, isGatewaySocketActive } from "./ipc/socket";
 import { installLaunchAgent, uninstallLaunchAgent } from "./launch-agent";
 import { logger } from "./logger";
 import { CronEngine, type CronTaskExecutionResult } from "./cron/engine";
@@ -48,6 +49,12 @@ function buildServeServices(home: string, config: AppConfig): ChatService[] {
 }
 
 async function runServe(home: string, config: AppConfig): Promise<void> {
+  const socketPath = getGatewaySocketPath(home);
+  const running = await isGatewaySocketActive(home);
+  if (running) {
+    throw new Error(`Gateway service is already running for home ${home} (socket: ${socketPath}).`);
+  }
+
   const agent = new Agent(home);
   const cronStore = new CronStore(home);
   const heartbeatEnabled = config.heartbeatEnabled ?? true;
@@ -218,10 +225,10 @@ async function main(): Promise<void> {
   try {
     const { command, home: homeFromArgs, positionalArg } = parseArgs(process.argv.slice(2));
 
-    if (command === "create-home") {
+    if (command === "init") {
       const target = positionalArg || homeFromArgs;
       if (!target) {
-        throw new Error("Usage: xeno create-home <path>");
+        throw new Error("Usage: xeno init <path>");
       }
       const { resolve } = await import("node:path");
       await runCreateHome(resolve(target));

@@ -10,7 +10,7 @@ import type { ConversationTurn } from "../agent";
 import type { ChatInboundMessage, PlatformCapabilities, PlatformContext } from "../chat/service";
 import type { Attachment, AttachmentType } from "../media";
 import { JsonRpcPeer } from "./json-rpc";
-import { getGatewaySocketPath } from "./socket";
+import { getGatewaySocketPath, isSocketPathActive } from "./socket";
 
 export interface GatewaySessionSnapshot {
   sessionId: string | null;
@@ -345,7 +345,7 @@ export class GatewayRpcServer {
       return;
     }
 
-    const active = await isSocketActive(this.socketPath);
+    const active = await isSocketPathActive(this.socketPath);
     if (active) {
       throw new Error(
         `Gateway RPC socket already in use at ${this.socketPath}. Is another serve process running?`,
@@ -701,23 +701,6 @@ function parseAttachments(value: unknown, source: "query" | "stream"): Attachmen
       caption: typeof record.caption === "string" ? record.caption : undefined,
       size: typeof record.size === "number" ? record.size : undefined,
     } satisfies Attachment;
-  });
-}
-
-async function isSocketActive(socketPath: string): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    const socket = createConnection(socketPath);
-
-    const finish = (value: boolean) => {
-      if (!socket.destroyed) {
-        socket.destroy();
-      }
-      resolve(value);
-    };
-
-    socket.once("connect", () => finish(true));
-    socket.once("error", () => finish(false));
-    socket.setTimeout(250, () => finish(false));
   });
 }
 

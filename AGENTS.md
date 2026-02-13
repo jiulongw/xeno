@@ -10,9 +10,9 @@
 
 - Entry point: `src/index.ts`
 - Commands:
-  - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, starts the cron engine, and supports graceful shutdown on `Ctrl-C`/`SIGTERM`
+  - `serve`: runs the gateway service and Unix domain socket JSON-RPC endpoint at `<home>/.xeno/gateway.sock`, starts the cron engine, supports graceful shutdown on `Ctrl-C`/`SIGTERM`, and exits with an error if another xeno process is already serving that socket
   - `console`: interactive terminal chat console that attaches to a running `serve` process over JSON-RPC, keeps a simple bottom input prompt, supports graceful shutdown on `Ctrl-C`/`SIGTERM`, abort support, and `/hb` to trigger heartbeat immediately
-  - `create-home <path>`: creates and initializes an agent home directory at the given path, scaffolding template files without overwriting existing ones
+  - `init <path>`: creates and initializes an agent home directory at the given path; always refreshes `CLAUDE.md` and files under `.claude/skills/` from templates while preserving other existing files
   - `install`: macOS-only command that writes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist` and loads it via `launchctl` to run `xeno serve` (entrypoint resolved from the running program path at install time); stdout/stderr are written to timestamped files under `~/.xeno/logs`; plist `EnvironmentVariables.PATH` includes Bun runtime directory
   - `uninstall`: macOS-only command that unloads and removes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist`
 - `--home <string>` is optional. If omitted, `default_home` from `~/.config/xeno/config.json` is used. The resolved home path is normalized to an absolute path.
@@ -67,7 +67,9 @@
   - `.claude/skills/applescript/SKILL.md` (+ `references/calendar.md`, `mail.md`, `notes.md`, `reminders.md`)
   - `.claude/skills/xeno-voice/SKILL.md` (+ `scripts/xeno-voice`)
 - `memory/` is created if missing.
-- Existing files are never overwritten.
+- `CLAUDE.md` and files under `.claude/skills/` are always refreshed from templates.
+- Other existing files are never overwritten.
+- `BOOTSTRAP.md` is not created when `CLAUDE.md` already exists in home.
 
 ## Logging
 

@@ -76,4 +76,32 @@ describe("createHome", () => {
     const content = await readFile(identityPath, "utf-8");
     expect(content).toBe(sentinel);
   });
+
+  test("does not create BOOTSTRAP.md when CLAUDE.md already exists", async () => {
+    const home = await makeTempHome();
+    await Bun.write(join(home, "CLAUDE.md"), "existing claude");
+
+    await createHome(home);
+
+    expect(await Bun.file(join(home, "BOOTSTRAP.md")).exists()).toBe(false);
+  });
+
+  test("always overwrites CLAUDE.md and skill files only", async () => {
+    const home = await makeTempHome();
+    const claudePath = join(home, "CLAUDE.md");
+    const heartbeatSkillPath = join(home, ".claude/skills/heartbeat/SKILL.md");
+    const toolsPath = join(home, "TOOLS.md");
+
+    await createHome(home);
+
+    await Bun.write(claudePath, "custom claude");
+    await Bun.write(heartbeatSkillPath, "custom heartbeat skill");
+    await Bun.write(toolsPath, "custom tools");
+
+    await createHome(home);
+
+    expect(await readFile(claudePath, "utf-8")).not.toBe("custom claude");
+    expect(await readFile(heartbeatSkillPath, "utf-8")).not.toBe("custom heartbeat skill");
+    expect(await readFile(toolsPath, "utf-8")).toBe("custom tools");
+  });
 });

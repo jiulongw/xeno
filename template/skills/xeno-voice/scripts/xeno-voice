@@ -35,9 +35,7 @@ async function loadApiKey({ allowMissing = false } = {}) {
     if (allowMissing) {
       return null;
     }
-    printErr(
-      `error: config file not found at ${CONFIG_PATH} (expected field: elevenlabs_api_key)`,
-    );
+    printErr(`error: config file not found at ${CONFIG_PATH} (expected field: elevenlabs_api_key)`);
     return null;
   }
 
@@ -87,15 +85,21 @@ async function getHttpErrorMessage(response) {
 }
 
 function usage() {
-  console.log(`xeno-voice\n\nUsage:\n  xeno-voice say <message> -o <path> [--voice-id <id>] [--model-id <id>] [--output-format <fmt>]\n  xeno-voice asr -f <audio_or_video_path> [--model-id <id>]\n\nCommands:\n  say   Text-to-speech\n  asr   Automatic speech recognition to text`);
+  console.log(
+    `xeno-voice\n\nUsage:\n  xeno-voice say <message> -o <path> [--voice-id <id>] [--model-id <id>] [--output-format <fmt>]\n  xeno-voice asr -f <audio_or_video_path> [--model-id <id>]\n\nCommands:\n  say   Text-to-speech\n  asr   Automatic speech recognition to text`,
+  );
 }
 
 function sayUsage() {
-  console.log(`Usage: xeno-voice say <message> -o <path> [options]\n\nOptions:\n  -o, --out-file <path>         Output audio file path (required)\n  -v, --voice-id <id>           ElevenLabs voice ID (default: ${TTS_VOICE_ID_DEFAULT})\n      --model-id <id>           TTS model ID (default: ${TTS_MODEL_DEFAULT})\n      --output-format <format>  TTS output format (default: ${TTS_OUTPUT_FORMAT_DEFAULT})`);
+  console.log(
+    `Usage: xeno-voice say <message> -o <path> [options]\n\nOptions:\n  -o, --out-file <path>         Output audio file path (required)\n  -v, --voice-id <id>           ElevenLabs voice ID (default: ${TTS_VOICE_ID_DEFAULT})\n      --model-id <id>           TTS model ID (default: ${TTS_MODEL_DEFAULT})\n      --output-format <format>  TTS output format (default: ${TTS_OUTPUT_FORMAT_DEFAULT})`,
+  );
 }
 
 function asrUsage() {
-  console.log(`Usage: xeno-voice asr -f <audio_or_video_path> [options]\n\nOptions:\n  -f, --file <path>    Input audio/video file path (required)\n      --model-id <id>  ASR model ID (default: ${ASR_MODEL_DEFAULT})`);
+  console.log(
+    `Usage: xeno-voice asr -f <audio_or_video_path> [options]\n\nOptions:\n  -f, --file <path>    Input audio/video file path (required)\n      --model-id <id>  ASR model ID (default: ${ASR_MODEL_DEFAULT})`,
+  );
 }
 
 function parseValue(argv, index, optionName) {
@@ -585,7 +589,9 @@ async function main() {
     return 0;
   }
 
-  const apiKey = await loadApiKey({ allowMissing: parsed.command === "say" || parsed.command === "asr" });
+  const apiKey = await loadApiKey({
+    allowMissing: parsed.command === "say" || parsed.command === "asr",
+  });
   if (apiKey === LOAD_API_KEY_ERROR) {
     return 1;
   }

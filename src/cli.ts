@@ -1,4 +1,4 @@
-export type CommandName = "serve" | "console" | "install" | "uninstall" | "create-home";
+export type CommandName = "serve" | "console" | "install" | "uninstall" | "init";
 
 export type ParsedArgs = {
   command: CommandName;
@@ -11,7 +11,7 @@ export function printUsage(): void {
 Commands:
   serve        Start long-running service
   console      Run interactive debug console
-  create-home  Create and initialize an agent home directory
+  init         Create and initialize an agent home directory
   install      Install macOS LaunchAgent
   uninstall    Uninstall macOS LaunchAgent
 
@@ -22,7 +22,7 @@ function isCommand(value: string): value is CommandName {
   return (
     value === "serve" ||
     value === "console" ||
-    value === "create-home" ||
+    value === "init" ||
     value === "install" ||
     value === "uninstall"
   );
@@ -38,7 +38,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
   let home: string | undefined;
   let positionalArg: string | undefined;
-  const acceptsPositional = commandRaw === "create-home";
+  const acceptsPositional = commandRaw === "init";
 
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i];

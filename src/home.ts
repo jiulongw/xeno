@@ -29,9 +29,13 @@ type TemplateFile = {
   mode?: number;
 };
 
+const CLAUDE_FILE = "CLAUDE.md";
+const BOOTSTRAP_FILE = "BOOTSTRAP.md";
+const SKILLS_PREFIX = ".claude/skills/";
+
 const TEMPLATE_FILES: TemplateFile[] = [
-  { relativePath: "CLAUDE.md", content: agentsTemplate },
-  { relativePath: "BOOTSTRAP.md", content: bootstrapTemplate },
+  { relativePath: CLAUDE_FILE, content: agentsTemplate },
+  { relativePath: BOOTSTRAP_FILE, content: bootstrapTemplate },
   { relativePath: "HEARTBEAT.md", content: heartbeatTemplate },
   { relativePath: "IDENTITY.md", content: identityTemplate },
   { relativePath: "MEMORY.md", content: memoryTemplate },
@@ -63,15 +67,25 @@ const TEMPLATE_FILES: TemplateFile[] = [
   },
 ];
 
+function shouldOverwriteTemplate(relativePath: string): boolean {
+  return relativePath === CLAUDE_FILE || relativePath.startsWith(SKILLS_PREFIX);
+}
+
 export async function createHome(homeDir: string): Promise<void> {
   await mkdir(homeDir, { recursive: true });
   await mkdir(join(homeDir, "memory"), { recursive: true });
   await mkdir(join(homeDir, "media", "received"), { recursive: true });
+  const claudeAlreadyExists = existsSync(join(homeDir, CLAUDE_FILE));
 
   for (const template of TEMPLATE_FILES) {
-    const destination = join(homeDir, template.relativePath);
+    if (template.relativePath === BOOTSTRAP_FILE && claudeAlreadyExists) {
+      continue;
+    }
 
-    if (existsSync(destination)) {
+    const destination = join(homeDir, template.relativePath);
+    const destinationExists = existsSync(destination);
+
+    if (destinationExists && !shouldOverwriteTemplate(template.relativePath)) {
       continue;
     }
 
