@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -20,10 +20,13 @@ import applescriptCalendarRef from "../template/skills/applescript/references/ca
 import applescriptMailRef from "../template/skills/applescript/references/mail.md" with { type: "text" };
 import applescriptNotesRef from "../template/skills/applescript/references/notes.md" with { type: "text" };
 import applescriptRemindersRef from "../template/skills/applescript/references/reminders.md" with { type: "text" };
+import xenoVoiceSkill from "../template/skills/xeno-voice/SKILL.md" with { type: "text" };
+import xenoVoiceScript from "../template/skills/xeno-voice/scripts/xeno-voice" with { type: "text" };
 
 type TemplateFile = {
   relativePath: string;
   content: string;
+  mode?: number;
 };
 
 const TEMPLATE_FILES: TemplateFile[] = [
@@ -52,6 +55,12 @@ const TEMPLATE_FILES: TemplateFile[] = [
     relativePath: ".claude/skills/applescript/references/reminders.md",
     content: applescriptRemindersRef,
   },
+  { relativePath: ".claude/skills/xeno-voice/SKILL.md", content: xenoVoiceSkill },
+  {
+    relativePath: ".claude/skills/xeno-voice/scripts/xeno-voice",
+    content: xenoVoiceScript,
+    mode: 0o755,
+  },
 ];
 
 export async function createHome(homeDir: string): Promise<void> {
@@ -68,6 +77,9 @@ export async function createHome(homeDir: string): Promise<void> {
 
     await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, template.content, "utf-8");
+    if (template.mode !== undefined) {
+      await chmod(destination, template.mode);
+    }
   }
 
   await scaffoldConfig(homeDir);

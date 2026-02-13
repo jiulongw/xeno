@@ -41,6 +41,8 @@ describe("createHome", () => {
       ".claude/settings.local.json",
       ".claude/skills/heartbeat/SKILL.md",
       ".claude/skills/run-cron-task/SKILL.md",
+      ".claude/skills/xeno-voice/SKILL.md",
+      ".claude/skills/xeno-voice/scripts/xeno-voice",
     ];
 
     for (const relativePath of expectedFiles) {
@@ -56,6 +58,11 @@ describe("createHome", () => {
 
     const receivedMediaDirStat = await Bun.file(join(home, "media", "received")).stat();
     expect(receivedMediaDirStat.isDirectory()).toBe(true);
+
+    const xenoVoiceScriptStat = await stat(
+      join(home, ".claude/skills/xeno-voice/scripts/xeno-voice"),
+    );
+    expect((xenoVoiceScriptStat.mode & 0o111) !== 0).toBe(true);
   });
 
   test("does not overwrite existing files", async () => {

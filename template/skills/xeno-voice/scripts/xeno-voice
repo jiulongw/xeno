@@ -1,0 +1,226 @@
+#!/usr/bin/env -S uv run --script
+# vim: set filetype=python ts=4 sw=4 et:
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "httpx>=0.27.0",
+# ]
+# ///
+
+from __future__ import annotations
+
+import argparse
+import json
+import mimetypes
+import sys
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+CONFIG_PATH = Path("~/.config/xeno/config.json").expanduser()
+TTS_MODEL_DEFAULT = "eleven_multilingual_v2"
+SAR_MODEL_DEFAULT = "scribe_v2"
+TTS_OUTPUT_FORMAT_DEFAULT = "mp3_44100_128"
+TTS_VOICE_ID_DEFAULT = "tOuLUAIdXShmWH7PEUrU"
+
+
+def print_err(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def load_api_key() -> str:
+    if not CONFIG_PATH.exists():
+        print_err(
+            f"error: config file not found at {CONFIG_PATH} (expected field: elevenlabs_api_key)"
+        )
+        raise SystemExit(1)
+
+    try:
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print_err(f"error: invalid JSON in {CONFIG_PATH}: {exc}")
+        raise SystemExit(1)
+    except OSError as exc:
+        print_err(f"error: unable to read {CONFIG_PATH}: {exc}")
+        raise SystemExit(1)
+
+    api_key = data.get("elevenlabs_api_key")
+    if not isinstance(api_key, str) or not api_key.strip():
+        print_err(
+            "error: elevenlabs_api_key is missing or empty in "
+            f"{CONFIG_PATH}"
+        )
+        raise SystemExit(1)
+
+    return api_key.strip()
+
+
+def exit_with_http_error(response: httpx.Response, action: str) -> None:
+    details = response.text.strip()
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = payload.get("detail")
+            if isinstance(detail, str) and detail:
+                details = detail
+            elif detail is not None:
+                details = json.dumps(detail, ensure_ascii=True)
+    except ValueError:
+        pass
+
+    print_err(
+        f"error: ElevenLabs {action} request failed "
+        f"({response.status_code}): {details}"
+    )
+    raise SystemExit(1)
+
+
+def run_say(args: argparse.Namespace, api_key: str) -> int:
+    out_path = Path(args.out_file).expanduser()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{args.voice_id}"
+    headers = {
+        "xi-api-key": api_key,
+        "accept": "audio/mpeg",
+        "content-type": "application/json",
+    }
+    payload = {
+        "text": args.message,
+        "model_id": args.model_id,
+    }
+    params = {"output_format": args.output_format}
+
+    try:
+        response = httpx.post(
+            url,
+            headers=headers,
+            json=payload,
+            params=params,
+            timeout=120.0,
+        )
+    except httpx.HTTPError as exc:
+        print_err(f"error: failed to call ElevenLabs TTS API: {exc}")
+        return 1
+
+    if response.status_code >= 400:
+        exit_with_http_error(response, "TTS")
+
+    try:
+        out_path.write_bytes(response.content)
+    except OSError as exc:
+        print_err(f"error: unable to write output file {out_path}: {exc}")
+        return 1
+
+    return 0
+
+
+def extract_transcript_text(payload: dict[str, Any]) -> str | None:
+    text = payload.get("text")
+    if isinstance(text, str) and text.strip():
+        return text
+
+    transcripts = payload.get("transcripts")
+    if isinstance(transcripts, list):
+        parts: list[str] = []
+        for item in transcripts:
+            if isinstance(item, dict):
+                chunk = item.get("text")
+                if isinstance(chunk, str) and chunk.strip():
+                    parts.append(chunk.strip())
+        if parts:
+            return "\n".join(parts)
+
+    return None
+
+
+def run_sar(args: argparse.Namespace, api_key: str) -> int:
+    audio_path = Path(args.file).expanduser()
+    if not audio_path.exists():
+        print_err(f"error: audio file not found: {audio_path}")
+        return 1
+    if not audio_path.is_file():
+        print_err(f"error: not a file: {audio_path}")
+        return 1
+
+    url = "https://api.elevenlabs.io/v1/speech-to-text"
+    headers = {"xi-api-key": api_key}
+    mime_type = mimetypes.guess_type(audio_path.name)[0] or "application/octet-stream"
+
+    try:
+        with audio_path.open("rb") as f:
+            response = httpx.post(
+                url,
+                headers=headers,
+                data={"model_id": args.model_id},
+                files={"file": (audio_path.name, f, mime_type)},
+                timeout=300.0,
+            )
+    except OSError as exc:
+        print_err(f"error: unable to read audio file {audio_path}: {exc}")
+        return 1
+    except httpx.HTTPError as exc:
+        print_err(f"error: failed to call ElevenLabs SAR API: {exc}")
+        return 1
+
+    if response.status_code >= 400:
+        exit_with_http_error(response, "SAR")
+
+    try:
+        payload = response.json()
+    except ValueError:
+        print_err("error: ElevenLabs SAR response was not valid JSON")
+        return 1
+
+    if not isinstance(payload, dict):
+        print_err("error: unexpected ElevenLabs SAR response shape")
+        return 1
+
+    transcript = extract_transcript_text(payload)
+    if transcript is None:
+        print_err("error: no transcript text found in ElevenLabs SAR response")
+        return 1
+
+    print(transcript)
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="xeno-voice")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    say_parser = subparsers.add_parser("say", help="Text-to-speech")
+    say_parser.add_argument("message", help="Message to synthesize")
+    say_parser.add_argument(
+        "-v",
+        "--voice-id",
+        default=TTS_VOICE_ID_DEFAULT,
+        help=f"ElevenLabs voice ID (default: {TTS_VOICE_ID_DEFAULT})",
+    )
+    say_parser.add_argument("-o", "--out-file", required=True, help="Output audio file path")
+    say_parser.add_argument("--model-id", default=TTS_MODEL_DEFAULT, help="TTS model ID")
+    say_parser.add_argument(
+        "--output-format",
+        default=TTS_OUTPUT_FORMAT_DEFAULT,
+        help="TTS output format (e.g. mp3_44100_128)",
+    )
+    say_parser.set_defaults(handler=run_say)
+
+    sar_parser = subparsers.add_parser("sar", help="Speech/audio recognition to text")
+    sar_parser.add_argument("-f", "--file", required=True, help="Input audio/video file path")
+    sar_parser.add_argument("--model-id", default=SAR_MODEL_DEFAULT, help="SAR model ID")
+    sar_parser.set_defaults(handler=run_sar)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    api_key = load_api_key()
+    return int(args.handler(args, api_key))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

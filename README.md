@@ -96,6 +96,7 @@ The agent home directory contains the following files (scaffolded from templates
 - `.claude/settings.local.json`
 - `.claude/skills/heartbeat/SKILL.md`
 - `.claude/skills/run-cron-task/SKILL.md`
+- `.claude/skills/xeno-voice/SKILL.md` (with `scripts/xeno-voice`)
 - `memory/` directory
 
 Existing files are preserved when re-running `create-home` or starting the service.
