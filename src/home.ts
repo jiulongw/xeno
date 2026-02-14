@@ -31,8 +31,8 @@ type TemplateFile = {
 const CLAUDE_FILE = "CLAUDE.md";
 const BOOTSTRAP_FILE = "BOOTSTRAP.md";
 const SKILLS_PREFIX = ".claude/skills/";
-const LEGACY_HEARTBEAT_SKILL_FILE = "skills/heartbeat/SKILL.md";
-const LEGACY_HEARTBEAT_SKILL_DIR = "skills/heartbeat";
+const LEGACY_HEARTBEAT_SKILL_DIR = ".claude/skills/heartbeat";
+const LEGACY_HEARTBEAT_SKILL_FILE = `${LEGACY_HEARTBEAT_SKILL_DIR}/SKILL.md`;
 
 const TEMPLATE_FILES: TemplateFile[] = [
   { relativePath: CLAUDE_FILE, content: agentsTemplate },

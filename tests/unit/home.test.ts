@@ -104,18 +104,37 @@ describe("createHome", () => {
     expect(await readFile(toolsPath, "utf-8")).toBe("custom tools");
   });
 
-  test("removes legacy skills/heartbeat/SKILL.md when scaffolding", async () => {
+  test("removes heartbeat SKILL.md and deletes directory when it becomes empty", async () => {
     const home = await makeTempHome();
-    const legacySkillPath = join(home, "skills/heartbeat/SKILL.md");
-    const legacySkillDir = join(home, "skills/heartbeat");
+    const claudeSkillDir = join(home, ".claude/skills/heartbeat");
+    const claudeSkillPath = join(claudeSkillDir, "SKILL.md");
 
-    await mkdir(legacySkillDir, { recursive: true });
-    await Bun.write(legacySkillPath, "legacy heartbeat skill");
+    await mkdir(claudeSkillDir, { recursive: true });
+    await Bun.write(claudeSkillPath, "legacy claude heartbeat skill");
 
     await createHome(home);
 
-    expect(await Bun.file(legacySkillPath).exists()).toBe(false);
-    expect(await Bun.file(legacySkillDir).exists()).toBe(false);
+    expect(await Bun.file(claudeSkillPath).exists()).toBe(false);
+    await expect(stat(claudeSkillDir)).rejects.toThrow();
     expect(await Bun.file(join(home, ".claude/skills/run-cron-task/SKILL.md")).exists()).toBe(true);
+  });
+
+  test("removes heartbeat SKILL.md and keeps directory when other files exist", async () => {
+    const home = await makeTempHome();
+    const claudeSkillDir = join(home, ".claude/skills/heartbeat");
+    const claudeSkillPath = join(claudeSkillDir, "SKILL.md");
+    const notesPath = join(claudeSkillDir, "notes.md");
+
+    await mkdir(claudeSkillDir, { recursive: true });
+    await Bun.write(claudeSkillPath, "legacy claude heartbeat skill");
+    await Bun.write(notesPath, "keep me");
+
+    await createHome(home);
+
+    expect(await Bun.file(claudeSkillPath).exists()).toBe(false);
+    const claudeSkillDirStat = await stat(claudeSkillDir);
+    expect(claudeSkillDirStat.isDirectory()).toBe(true);
+    expect(await Bun.file(notesPath).exists()).toBe(true);
+    expect(await readFile(notesPath, "utf-8")).toBe("keep me");
   });
 });
