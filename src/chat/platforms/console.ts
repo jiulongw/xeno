@@ -150,6 +150,14 @@ export class ConsolePlatform implements ChatService {
     this.shutdown("SIGTERM");
   }
 
+  async startTyping(): Promise<void> {
+    return;
+  }
+
+  async stopTyping(): Promise<void> {
+    return;
+  }
+
   async sendMessage(
     content: string,
     isPartial: boolean,
@@ -170,14 +178,22 @@ export class ConsolePlatform implements ChatService {
       return;
     }
 
-    this.pendingAgentContent = content;
+    const suppressText = options?.suppressText === true;
+    if (!suppressText) {
+      this.pendingAgentContent = content;
+    }
 
     if (isPartial) {
       return;
     }
 
-    this.addMessage("agent", this.pendingAgentContent || "[No response]");
+    if (!suppressText) {
+      this.addMessage("agent", this.pendingAgentContent || "[No response]");
+    }
     this.printAttachments(options?.attachments);
+    if (suppressText) {
+      return;
+    }
     this.pendingAgentContent = null;
     this.activeQuery = false;
     this.abortingQuery = false;

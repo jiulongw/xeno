@@ -77,25 +77,19 @@ describe("Gateway RPC integration", () => {
     });
 
     expect(notifications.map((entry) => entry.method)).toEqual([
-      "gateway.stream",
       "gateway.stats",
       "gateway.stream",
       "gateway.done",
     ]);
     expect(notifications[0]?.params).toMatchObject({
       requestId: "req-1",
-      content: "echo this",
-      isPartial: true,
     });
     expect(notifications[1]?.params).toMatchObject({
-      requestId: "req-1",
-    });
-    expect(notifications[2]?.params).toMatchObject({
       requestId: "req-1",
       content: "echo this",
       isPartial: false,
     });
-    expect(notifications[3]?.params).toMatchObject({
+    expect(notifications[2]?.params).toMatchObject({
       requestId: "req-1",
     });
   });

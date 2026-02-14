@@ -22,6 +22,8 @@ export interface TelegramPlatformOptions {
 }
 
 export class TelegramPlatform implements ChatService {
+  private static readonly TELEGRAM_PARSE_MODE = "Markdown";
+  private static readonly TELEGRAM_TYPING_ACTION = "typing";
   readonly type: PlatformType = "telegram";
   readonly capabilities: PlatformCapabilities = {
     supportsStreaming: true,
@@ -46,8 +48,11 @@ export class TelegramPlatform implements ChatService {
   private activeText = "";
   private pendingPartial: string | null = null;
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
+  private typingTimer: ReturnType<typeof setTimeout> | null = null;
+  private typingChatId: number | null = null;
   private lastEditAt = 0;
   private readonly minEditIntervalMs = 1_000;
+  private readonly typingRefreshIntervalMs = 4_000;
   private static readonly BOT_COMMANDS = [
     {
       command: "compact",
@@ -309,6 +314,7 @@ export class TelegramPlatform implements ChatService {
 
   async stop(): Promise<void> {
     this.clearPendingTimer();
+    this.stopTypingIndicator();
     await this.flushPendingPartial();
     this.clearActiveReplyState();
     this.onAbortRequestHandler();
@@ -319,6 +325,17 @@ export class TelegramPlatform implements ChatService {
     }
   }
 
+  async startTyping(): Promise<void> {
+    if (this.activeChatId === null) {
+      return;
+    }
+    await this.startTypingIndicator(this.activeChatId);
+  }
+
+  async stopTyping(): Promise<void> {
+    this.stopTypingIndicator();
+  }
+
   async sendMessage(
     content: string,
     isPartial: boolean,
@@ -327,8 +344,13 @@ export class TelegramPlatform implements ChatService {
     if (!this.bot) {
       return;
     }
+    if (isPartial) {
+      return;
+    }
 
-    const normalized = content.trim().length > 0 ? content : "[No response]";
+    const sendText = options?.suppressText !== true;
+    const attachments = options?.attachments;
+    const normalized = sendText ? (content.trim().length > 0 ? content : "[No response]") : "";
 
     if (options?.reason === "proactive") {
       const target = options.target;
@@ -343,8 +365,10 @@ export class TelegramPlatform implements ChatService {
       }
 
       if (!isPartial) {
-        await this.bot.api.sendMessage(targetChatId, normalized);
-        await this.sendAttachments(targetChatId, options.attachments);
+        if (sendText) {
+          await this.sendTelegramMessage(targetChatId, normalized);
+        }
+        await this.sendAttachments(targetChatId, attachments);
       }
       return;
     }
@@ -354,32 +378,37 @@ export class TelegramPlatform implements ChatService {
     }
 
     if (this.activeMessageId === null) {
-      const message = await this.bot.api.sendMessage(this.activeChatId, normalized);
-      this.activeMessageId = message.message_id;
-      this.activeText = normalized;
-      this.lastEditAt = Date.now();
-      if (!isPartial) {
-        await this.sendAttachments(this.activeChatId, options?.attachments);
+      try {
+        if (sendText) {
+          const message = await this.sendTelegramMessage(this.activeChatId, normalized);
+          this.activeMessageId = message.message_id;
+          this.activeText = normalized;
+          this.lastEditAt = Date.now();
+        }
+        if (!isPartial) {
+          await this.sendAttachments(this.activeChatId, attachments);
+        }
+      } finally {
+        if (sendText) {
+          this.stopTypingIndicator();
+        }
       }
       return;
     }
 
-    if (!isPartial) {
+    if (sendText) {
       this.pendingPartial = null;
       this.clearPendingTimer();
-      await this.editActiveMessage(normalized);
-      await this.sendAttachments(this.activeChatId, options?.attachments);
-      return;
+      try {
+        await this.editActiveMessage(normalized);
+        await this.sendAttachments(this.activeChatId, attachments);
+      } finally {
+        this.stopTypingIndicator();
+      }
+    } else {
+      await this.sendAttachments(this.activeChatId, attachments);
     }
-
-    const elapsed = Date.now() - this.lastEditAt;
-    if (elapsed >= this.minEditIntervalMs) {
-      await this.editActiveMessage(normalized);
-      return;
-    }
-
-    this.pendingPartial = normalized;
-    this.schedulePartialFlush(this.minEditIntervalMs - elapsed);
+    return;
   }
 
   async sendStats(_stats: string): Promise<void> {
@@ -512,23 +541,23 @@ export class TelegramPlatform implements ChatService {
       try {
         switch (attachment.type) {
           case "image": {
-            await this.bot.api.sendPhoto(chatId, inputFile, caption ? { caption } : undefined);
+            await this.sendTelegramPhoto(chatId, inputFile, caption);
             break;
           }
           case "video": {
-            await this.bot.api.sendVideo(chatId, inputFile, caption ? { caption } : undefined);
+            await this.sendTelegramVideo(chatId, inputFile, caption);
             break;
           }
           case "audio": {
-            await this.bot.api.sendAudio(chatId, inputFile, caption ? { caption } : undefined);
+            await this.sendTelegramAudio(chatId, inputFile, caption);
             break;
           }
           case "document": {
-            await this.bot.api.sendDocument(chatId, inputFile, caption ? { caption } : undefined);
+            await this.sendTelegramDocument(chatId, inputFile, caption);
             break;
           }
           case "animation": {
-            await this.bot.api.sendAnimation(chatId, inputFile, caption ? { caption } : undefined);
+            await this.sendTelegramAnimation(chatId, inputFile, caption);
             break;
           }
           case "sticker": {
@@ -551,7 +580,7 @@ export class TelegramPlatform implements ChatService {
     }
 
     try {
-      await this.bot.api.editMessageText(this.activeChatId, this.activeMessageId, content);
+      await this.editTelegramMessage(this.activeChatId, this.activeMessageId, content);
       this.activeText = content;
       this.lastEditAt = Date.now();
     } catch (error) {
@@ -592,7 +621,65 @@ export class TelegramPlatform implements ChatService {
     }
   }
 
+  private async startTypingIndicator(chatId: number): Promise<void> {
+    if (!this.bot) {
+      return;
+    }
+    if (this.typingChatId !== chatId) {
+      this.stopTypingIndicator();
+      this.typingChatId = chatId;
+    }
+
+    if (this.typingTimer) {
+      return;
+    }
+
+    await this.sendTypingAction(chatId);
+    this.scheduleTypingRefresh(chatId);
+  }
+
+  private scheduleTypingRefresh(chatId: number): void {
+    this.typingTimer = setTimeout(() => {
+      this.typingTimer = null;
+      void this.refreshTypingIndicator(chatId);
+    }, this.typingRefreshIntervalMs);
+  }
+
+  private async refreshTypingIndicator(chatId: number): Promise<void> {
+    if (!this.bot) {
+      return;
+    }
+    if (this.typingChatId !== chatId) {
+      return;
+    }
+
+    await this.sendTypingAction(chatId);
+    if (this.typingChatId === chatId) {
+      this.scheduleTypingRefresh(chatId);
+    }
+  }
+
+  private async sendTypingAction(chatId: number): Promise<void> {
+    if (!this.bot) {
+      return;
+    }
+    try {
+      await this.bot.api.sendChatAction(chatId, TelegramPlatform.TELEGRAM_TYPING_ACTION);
+    } catch (error) {
+      this.platformLogger.warn({ error, chatId }, "Failed to send Telegram typing action");
+    }
+  }
+
+  private stopTypingIndicator(): void {
+    if (this.typingTimer) {
+      clearTimeout(this.typingTimer);
+      this.typingTimer = null;
+    }
+    this.typingChatId = null;
+  }
+
   private clearActiveReplyState(): void {
+    this.stopTypingIndicator();
     this.activeChatId = null;
     this.activeMessageId = null;
     this.activeText = "";
@@ -765,6 +852,187 @@ export class TelegramPlatform implements ChatService {
       return normalized;
     }
     return `${normalized.slice(0, limit)}...`;
+  }
+
+  private async sendTelegramMessage(chatId: number, text: string) {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      return await this.bot.api.sendMessage(chatId, text, {
+        parse_mode: TelegramPlatform.TELEGRAM_PARSE_MODE,
+      });
+    } catch (error) {
+      if (!this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+
+      this.platformLogger.warn(
+        { error },
+        "Telegram Markdown parse failed for message; retrying without parse mode",
+      );
+      return await this.bot.api.sendMessage(chatId, text);
+    }
+  }
+
+  private async editTelegramMessage(
+    chatId: number,
+    messageId: number,
+    text: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.editMessageText(chatId, messageId, text, {
+        parse_mode: TelegramPlatform.TELEGRAM_PARSE_MODE,
+      });
+      return;
+    } catch (error) {
+      if (!this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+
+      this.platformLogger.warn(
+        { error },
+        "Telegram Markdown parse failed for edit; retrying without parse mode",
+      );
+      await this.bot.api.editMessageText(chatId, messageId, text);
+    }
+  }
+
+  private async sendTelegramPhoto(
+    chatId: number,
+    inputFile: InputFile,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.sendPhoto(
+        chatId,
+        inputFile,
+        caption ? this.markdownCaptionOptions(caption) : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!caption || !this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+      await this.bot.api.sendPhoto(chatId, inputFile, { caption });
+    }
+  }
+
+  private async sendTelegramVideo(
+    chatId: number,
+    inputFile: InputFile,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.sendVideo(
+        chatId,
+        inputFile,
+        caption ? this.markdownCaptionOptions(caption) : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!caption || !this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+      await this.bot.api.sendVideo(chatId, inputFile, { caption });
+    }
+  }
+
+  private async sendTelegramAudio(
+    chatId: number,
+    inputFile: InputFile,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.sendAudio(
+        chatId,
+        inputFile,
+        caption ? this.markdownCaptionOptions(caption) : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!caption || !this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+      await this.bot.api.sendAudio(chatId, inputFile, { caption });
+    }
+  }
+
+  private async sendTelegramDocument(
+    chatId: number,
+    inputFile: InputFile,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.sendDocument(
+        chatId,
+        inputFile,
+        caption ? this.markdownCaptionOptions(caption) : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!caption || !this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+      await this.bot.api.sendDocument(chatId, inputFile, { caption });
+    }
+  }
+
+  private async sendTelegramAnimation(
+    chatId: number,
+    inputFile: InputFile,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.sendAnimation(
+        chatId,
+        inputFile,
+        caption ? this.markdownCaptionOptions(caption) : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!caption || !this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+      await this.bot.api.sendAnimation(chatId, inputFile, { caption });
+    }
+  }
+
+  private markdownCaptionOptions(caption: string) {
+    return {
+      caption,
+      parse_mode: TelegramPlatform.TELEGRAM_PARSE_MODE,
+    } as const;
+  }
+
+  private isTelegramMarkdownParseError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes("can't parse entities");
   }
 }
 

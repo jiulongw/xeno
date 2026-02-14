@@ -18,11 +18,26 @@ type MessageRecord = {
   options?: OutboundMessageOptions;
 };
 
+type QueryServiceMock = {
+  type: PlatformType;
+  capabilities: PlatformCapabilities;
+  messages: MessageRecord[];
+  stats: string[];
+  sendMessage: (
+    content: string,
+    isPartial: boolean,
+    options?: OutboundMessageOptions,
+  ) => Promise<void>;
+  sendStats: (value: string) => Promise<void>;
+  startTyping?: () => Promise<void>;
+  stopTyping?: () => Promise<void>;
+};
+
 const TELEGRAM_STOP_FOLLOW_UP_PROMPT =
   "The Telegram user intentionally sent /stop to abort the previous response. " +
   "Acknowledge that the previous response was stopped and ask what they want to do next.";
 
-function makeQueryService(type: PlatformType = "console") {
+function makeQueryService(type: PlatformType = "console"): QueryServiceMock {
   const messages: MessageRecord[] = [];
   const stats: string[] = [];
 
@@ -59,7 +74,7 @@ function inbound(
 }
 
 describe("Gateway", () => {
-  test("streams echo content and sends final response", async () => {
+  test("sends only final response", async () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
@@ -71,13 +86,41 @@ describe("Gateway", () => {
     await gateway.submitMessage(service, inbound("hello"));
 
     expect(service.messages).toEqual([
-      { content: "hello", isPartial: true, options: { reason: "response" } },
       { content: "hello", isPartial: false, options: { reason: "response" } },
     ]);
     expect(service.stats.length).toBe(1);
     expect(service.stats[0]).toContain("result=success");
     expect(agent.calls.length).toBe(1);
     expect(agent.calls[0]?.options?.platformContext?.type).toBe("console");
+  });
+
+  test("starts and stops typing around reply query", async () => {
+    const agent = new EchoMockAgent({ chunkDelayMs: 25 });
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("telegram");
+    let starts = 0;
+    let stops = 0;
+    service.startTyping = async () => {
+      starts += 1;
+    };
+    service.stopTyping = async () => {
+      stops += 1;
+    };
+
+    await gateway.submitMessage(
+      service,
+      inbound("hello", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    expect(starts).toBe(1);
+    expect(stops).toBe(1);
   });
 
   test("routes /compact as raw slash command without platform context wrapping", async () => {
@@ -101,7 +144,6 @@ describe("Gateway", () => {
     expect(agent.calls[0]?.prompt).toBe("/compact");
     expect(agent.calls[0]?.options?.platformContext).toBeUndefined();
     expect(service.messages).toEqual([
-      { content: "/compact", isPartial: true, options: { reason: "response" } },
       { content: "/compact", isPartial: false, options: { reason: "response" } },
     ]);
   });
@@ -127,7 +169,6 @@ describe("Gateway", () => {
     expect(agent.calls[0]?.prompt).toBe(TELEGRAM_STOP_FOLLOW_UP_PROMPT);
     expect(agent.calls[0]?.options?.platformContext).toBeUndefined();
     expect(service.messages).toEqual([
-      { content: TELEGRAM_STOP_FOLLOW_UP_PROMPT, isPartial: true, options: { reason: "response" } },
       {
         content: TELEGRAM_STOP_FOLLOW_UP_PROMPT,
         isPartial: false,
@@ -179,7 +220,6 @@ describe("Gateway", () => {
         isPartial: false,
         options: { reason: "response" },
       },
-      { content: "second", isPartial: true, options: { reason: "response" } },
       { content: "second", isPartial: false, options: { reason: "response" } },
     ]);
   });
@@ -221,7 +261,6 @@ describe("Gateway", () => {
       ),
     ).toBe(false);
     expect(secondService.messages).toEqual([
-      { content: TELEGRAM_STOP_FOLLOW_UP_PROMPT, isPartial: true, options: { reason: "response" } },
       {
         content: TELEGRAM_STOP_FOLLOW_UP_PROMPT,
         isPartial: false,
@@ -387,7 +426,6 @@ describe("Gateway", () => {
     await gateway.waitForAnyServiceStop();
 
     expect(delivered).toEqual([
-      { content: "hello", isPartial: true, options: { reason: "response" } },
       { content: "hello", isPartial: false, options: { reason: "response" } },
     ]);
   });
@@ -435,7 +473,31 @@ describe("Gateway", () => {
 
     await gateway.submitMessage(service, inbound("hello"));
 
-    expect(agent.calls[0]?.options?.mcpServers).toEqual(mcpServers);
+    const configured = agent.calls[0]?.options?.mcpServers;
+    expect(configured?.["xeno-cron"]).toEqual(mcpServers["xeno-cron"]);
+    expect(configured?.["xeno-reply-attachment"]).toBeDefined();
+  });
+
+  test("adds reply attachment MCP server to user queries", async () => {
+    const agent = new EchoMockAgent();
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("telegram");
+
+    await gateway.submitMessage(
+      service,
+      inbound("hello", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    const configured = agent.calls[0]?.options?.mcpServers;
+    expect(configured).toBeDefined();
+    expect(configured?.["xeno-reply-attachment"]).toBeDefined();
   });
 
   test("merges cron query MCP servers with gateway MCP servers", async () => {

@@ -24,6 +24,7 @@ export interface OutboundMessageOptions {
   reason: "response" | "proactive";
   target?: OutboundMessageTarget;
   attachments?: Attachment[];
+  suppressText?: boolean;
 }
 
 export interface ChatInboundMessage {
@@ -41,6 +42,8 @@ export interface ChatService {
 
   start(): Promise<void>;
   stop(): Promise<void>;
+  startTyping?(): Promise<void>;
+  stopTyping?(): Promise<void>;
 
   onUserMessage(handler: UserMessageHandler): void;
   onAbortRequest?(handler: AbortRequestHandler): void;

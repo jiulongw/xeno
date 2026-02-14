@@ -11,6 +11,7 @@ import type {
 } from "./chat/service";
 import { logger } from "./logger";
 import type { Attachment } from "./media";
+import { createReplyAttachmentMcpServer } from "./mcp/reply-attachment";
 
 const USER_QUERY_DEQUEUED_ERROR = "Queued user query was removed.";
 const MAX_QUEUED_MESSAGES_IN_PROMPT = 20;
@@ -304,19 +305,43 @@ export class Gateway {
       throw error;
     }
     let streamed = "";
-    let fallbackFinal = "";
+    let finalAssistant = "";
+    let failedResponse: string | null = null;
+    const collectedAttachments: Attachment[] = [];
     const prompt = isCompactCommand
       ? "/compact"
       : isTelegramStopCommand
         ? buildTelegramStopFollowUpPrompt(drainedPendingQueries)
         : inbound.content;
     const platformContext = isCompactCommand || isTelegramStopCommand ? undefined : inbound.context;
+    const replyAttachmentMcpServer = createReplyAttachmentMcpServer({
+      sendAttachment: async (attachment) => {
+        const supportedMediaTypes = service.capabilities.supportedMediaTypes;
+        if (supportedMediaTypes && !supportedMediaTypes.includes(attachment.type)) {
+          return {
+            delivered: false,
+            reason: `${service.type} does not support ${attachment.type} attachments.`,
+          };
+        }
+
+        collectedAttachments.push(attachment);
+        return { delivered: true };
+      },
+    });
+    const queryMcpServers = mergeMcpServers(this.mcpServers, {
+      "xeno-reply-attachment": replyAttachmentMcpServer,
+    });
+    try {
+      await service.startTyping?.();
+    } catch (error) {
+      logger.warn({ error, service: service.type }, "Failed to start typing indicator");
+    }
 
     try {
       for await (const message of this.agent.query(prompt, {
-        includePartialMessages: true,
+        includePartialMessages: false,
         platformContext,
-        mcpServers: this.mcpServers,
+        mcpServers: queryMcpServers,
         attachments: inbound.attachments,
       })) {
         if (this.shuttingDown) {
@@ -330,22 +355,13 @@ export class Gateway {
           }
 
           streamed += delta;
-          await service.sendMessage(
-            formatMessage(streamed, inbound.context, service.capabilities),
-            true,
-            responseOptions,
-          );
           continue;
         }
 
         if (message.type === "assistant") {
-          fallbackFinal = extractText(message);
-          if (fallbackFinal && !streamed) {
-            await service.sendMessage(
-              formatMessage(fallbackFinal, inbound.context, service.capabilities),
-              true,
-              responseOptions,
-            );
+          const text = extractText(message);
+          if (text) {
+            finalAssistant = text;
           }
           continue;
         }
@@ -360,18 +376,27 @@ export class Gateway {
       const isAbortError = lowered.includes("aborted") || lowered.includes("abort");
       if (!isAbortError) {
         logger.error({ error, service: service.type }, "Gateway query failed");
-        fallbackFinal = `Error: ${errorMessage}`;
+        failedResponse = `Error: ${errorMessage}`;
       }
     } finally {
-      const finalContent = streamed || fallbackFinal || "[No response]";
+      const finalContent = failedResponse ?? (finalAssistant || streamed || "[No response]");
+      const finalOptions: OutboundMessageOptions = {
+        ...responseOptions,
+        attachments: collectedAttachments.length > 0 ? [...collectedAttachments] : undefined,
+      };
       try {
         await service.sendMessage(
           formatMessage(finalContent, inbound.context, service.capabilities),
           false,
-          responseOptions,
+          finalOptions,
         );
       } catch (error) {
         logger.error({ error, service: service.type }, "Failed to send final message");
+      }
+      try {
+        await service.stopTyping?.();
+      } catch (error) {
+        logger.warn({ error, service: service.type }, "Failed to stop typing indicator");
       }
       this.activeQuery = false;
     }
@@ -492,7 +517,10 @@ export class Gateway {
   }
 }
 
-type QueryService = Pick<ChatService, "type" | "capabilities" | "sendMessage" | "sendStats">;
+type QueryService = Pick<
+  ChatService,
+  "type" | "capabilities" | "sendMessage" | "sendStats" | "startTyping" | "stopTyping"
+>;
 type PendingUserQuery = {
   inbound: ChatInboundMessage;
   abortController: AbortController;
