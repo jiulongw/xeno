@@ -12,6 +12,14 @@ import type {
 import { logger } from "./logger";
 import type { Attachment } from "./media";
 
+const USER_QUERY_DEQUEUED_ERROR = "Queued user query was removed.";
+const MAX_QUEUED_MESSAGES_IN_PROMPT = 20;
+const MAX_QUEUED_MESSAGE_CONTENT_LENGTH = 280;
+
+const TELEGRAM_STOP_FOLLOW_UP_PROMPT =
+  "The Telegram user intentionally sent /stop to abort the previous response. " +
+  "Acknowledge that the previous response was stopped and ask what they want to do next.";
+
 export interface GatewayConfig {
   home: string;
   agent: AgentRuntime;
@@ -52,6 +60,7 @@ export class Gateway {
 
   private activeQuery = false;
   private shuttingDown = false;
+  private readonly pendingUserQueries: PendingUserQuery[] = [];
 
   constructor(config: GatewayConfig) {
     this.agent = config.agent;
@@ -108,7 +117,10 @@ export class Gateway {
       throw new Error("Cron query aborted.");
     }
 
-    await this.acquireActiveQuery(request.abortSignal);
+    await this.acquireActiveQuery({
+      abortSignal: request.abortSignal,
+      abortErrorMessage: "Cron query aborted.",
+    });
     const startedAt = Date.now();
     let streamed = "";
     let fallbackFinal = "";
@@ -243,8 +255,22 @@ export class Gateway {
     const responseOptions: OutboundMessageOptions = {
       reason: "response",
     };
+    const command = parseSlashCommand(inbound.content);
+    const isCompactCommand = command === "/compact";
+    const isTelegramStopCommand = command === "/stop" && inbound.context.type === "telegram";
+    const waitAbortController = new AbortController();
+    const pendingQueueEntry: PendingUserQuery = {
+      inbound,
+      abortController: waitAbortController,
+    };
+    let drainedPendingQueries: ChatInboundMessage[] = [];
 
-    if (this.activeQuery) {
+    if (isTelegramStopCommand) {
+      this.abortActiveQuery();
+      drainedPendingQueries = this.dequeuePendingUserQueries();
+    }
+
+    if (this.activeQuery && !isTelegramStopCommand) {
       try {
         await service.sendMessage(
           "Busy with another task right now. I queued your message and will reply when it finishes.",
@@ -256,13 +282,35 @@ export class Gateway {
       }
     }
 
-    await this.acquireActiveQuery();
+    try {
+      await this.acquireActiveQuery({
+        abortSignal: isTelegramStopCommand ? undefined : waitAbortController.signal,
+        abortErrorMessage: USER_QUERY_DEQUEUED_ERROR,
+        onWaitStart: isTelegramStopCommand
+          ? undefined
+          : () => {
+              this.pendingUserQueries.push(pendingQueueEntry);
+            },
+        onWaitEnd: isTelegramStopCommand
+          ? undefined
+          : () => {
+              this.removePendingUserQuery(waitAbortController);
+            },
+      });
+    } catch (error) {
+      if (isDequeuedUserQueryError(error)) {
+        return;
+      }
+      throw error;
+    }
     let streamed = "";
     let fallbackFinal = "";
-    const command = parseSlashCommand(inbound.content);
-    const isCompactCommand = command === "/compact";
-    const prompt = isCompactCommand ? "/compact" : inbound.content;
-    const platformContext = isCompactCommand ? undefined : inbound.context;
+    const prompt = isCompactCommand
+      ? "/compact"
+      : isTelegramStopCommand
+        ? buildTelegramStopFollowUpPrompt(drainedPendingQueries)
+        : inbound.content;
+    const platformContext = isCompactCommand || isTelegramStopCommand ? undefined : inbound.context;
 
     try {
       for await (const message of this.agent.query(prompt, {
@@ -372,13 +420,57 @@ export class Gateway {
     return { target };
   }
 
-  private async acquireActiveQuery(abortSignal?: AbortSignal): Promise<void> {
+  private dequeuePendingUserQueries(): ChatInboundMessage[] {
+    if (this.pendingUserQueries.length === 0) {
+      return [];
+    }
+
+    const drained = this.pendingUserQueries.map((entry) => entry.inbound);
+    const pending = [...this.pendingUserQueries];
+    this.pendingUserQueries.length = 0;
+    for (const entry of pending) {
+      entry.abortController.abort();
+    }
+
+    return drained;
+  }
+
+  private removePendingUserQuery(abortController: AbortController): void {
+    const index = this.pendingUserQueries.findIndex(
+      (entry) => entry.abortController === abortController,
+    );
+    if (index < 0) {
+      return;
+    }
+    this.pendingUserQueries.splice(index, 1);
+  }
+
+  private async acquireActiveQuery(options?: {
+    abortSignal?: AbortSignal;
+    abortErrorMessage?: string;
+    onWaitStart?: () => void;
+    onWaitEnd?: () => void;
+  }): Promise<void> {
+    const abortSignal = options?.abortSignal;
+    const abortErrorMessage = options?.abortErrorMessage ?? "Query aborted.";
+    let waiting = false;
+
     while (this.activeQuery) {
+      if (!waiting) {
+        waiting = true;
+        options?.onWaitStart?.();
+      }
       if (this.shuttingDown) {
+        if (waiting) {
+          options?.onWaitEnd?.();
+        }
         throw new Error("Gateway is shutting down.");
       }
       if (abortSignal?.aborted) {
-        throw new Error("Cron query aborted.");
+        if (waiting) {
+          options?.onWaitEnd?.();
+        }
+        throw new Error(abortErrorMessage);
       }
 
       await new Promise<void>((resolve) => {
@@ -386,11 +478,14 @@ export class Gateway {
       });
     }
 
+    if (waiting) {
+      options?.onWaitEnd?.();
+    }
     if (this.shuttingDown) {
       throw new Error("Gateway is shutting down.");
     }
     if (abortSignal?.aborted) {
-      throw new Error("Cron query aborted.");
+      throw new Error(abortErrorMessage);
     }
 
     this.activeQuery = true;
@@ -398,6 +493,10 @@ export class Gateway {
 }
 
 type QueryService = Pick<ChatService, "type" | "capabilities" | "sendMessage" | "sendStats">;
+type PendingUserQuery = {
+  inbound: ChatInboundMessage;
+  abortController: AbortController;
+};
 
 function parseSlashCommand(content: string): string | null {
   const trimmed = content.trim();
@@ -411,6 +510,58 @@ function parseSlashCommand(content: string): string | null {
   }
 
   return command.toLowerCase();
+}
+
+function isDequeuedUserQueryError(error: unknown): boolean {
+  return error instanceof Error && error.message === USER_QUERY_DEQUEUED_ERROR;
+}
+
+function buildTelegramStopFollowUpPrompt(queuedMessages: ChatInboundMessage[]): string {
+  if (queuedMessages.length === 0) {
+    return TELEGRAM_STOP_FOLLOW_UP_PROMPT;
+  }
+
+  const queuedLines = queuedMessages
+    .slice(0, MAX_QUEUED_MESSAGES_IN_PROMPT)
+    .map((message, index) => formatQueuedMessageForPrompt(message, index + 1));
+  const omittedCount = queuedMessages.length - queuedLines.length;
+  if (omittedCount > 0) {
+    queuedLines.push(`${queuedLines.length + 1}. [${omittedCount} more queued message(s) omitted]`);
+  }
+
+  return [
+    "The Telegram user intentionally sent /stop to abort the previous response.",
+    "The messages below were waiting in queue and have been removed.",
+    "Use them only as context, then check with the user before taking action.",
+    "Queued messages:",
+    ...queuedLines,
+  ].join("\n");
+}
+
+function formatQueuedMessageForPrompt(message: ChatInboundMessage, index: number): string {
+  const source = message.context.type;
+  const channel = message.context.channelId?.trim();
+  const attachmentCount = message.attachments?.length ?? 0;
+  const normalizedContent = collapseWhitespace(message.content);
+  const content = normalizedContent.slice(0, MAX_QUEUED_MESSAGE_CONTENT_LENGTH);
+  const suffix = content.length < normalizedContent.length ? "..." : "";
+  const labelParts: string[] = [source];
+  if (channel) {
+    labelParts.push(`channel:${channel}`);
+  }
+  if (attachmentCount > 0) {
+    labelParts.push(`attachments:${attachmentCount}`);
+  }
+
+  return `${index}. [${labelParts.join(" ")}] ${content}${suffix || ""}`;
+}
+
+function collapseWhitespace(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "[empty]";
+  }
+  return trimmed.replace(/\s+/g, " ");
 }
 
 function mergeMcpServers(

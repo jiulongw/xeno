@@ -139,8 +139,9 @@ You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
 
 - `serve` enables Telegram automatically when a token is available
 - `TELEGRAM_BOT_TOKEN` overrides `telegram_bot_token` from config
-- Sending `/start` initializes bot commands for the chat (currently `/compact`)
+- Sending `/start` initializes bot commands for the chat (currently `/compact` and `/stop`)
 - Telegram `/compact` is forwarded as a raw slash command and bypasses platform-context wrapping
+- Telegram `/stop` aborts the active query (if any) and sends a follow-up prompt asking what to do next
 - Non-command Telegram messages include sender name context (`first_name`, fallback `username`) when passed to the agent
 
 ## Cron and heartbeat

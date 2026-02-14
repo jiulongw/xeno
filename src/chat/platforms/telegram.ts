@@ -53,6 +53,10 @@ export class TelegramPlatform implements ChatService {
       command: "compact",
       description: "Compact context window",
     },
+    {
+      command: "stop",
+      description: "Stop active response and check next step",
+    },
   ] as const;
 
   constructor(options: TelegramPlatformOptions) {
@@ -135,6 +139,23 @@ export class TelegramPlatform implements ChatService {
 
       this.enqueueInbound(async () => {
         await this.handleIncomingText(ctx, "/compact");
+      });
+    });
+
+    bot.command("stop", (ctx) => {
+      this.platformLogger.info(
+        {
+          userId: ctx.from ? String(ctx.from.id) : undefined,
+          channelId: ctx.chat ? String(ctx.chat.id) : undefined,
+          chatType: ctx.chat?.type,
+          username: ctx.from?.username,
+        },
+        "Telegram /stop received",
+      );
+
+      this.onAbortRequestHandler();
+      this.enqueueInbound(async () => {
+        await this.handleIncomingText(ctx, "/stop");
       });
     });
 

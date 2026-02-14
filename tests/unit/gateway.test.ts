@@ -18,6 +18,10 @@ type MessageRecord = {
   options?: OutboundMessageOptions;
 };
 
+const TELEGRAM_STOP_FOLLOW_UP_PROMPT =
+  "The Telegram user intentionally sent /stop to abort the previous response. " +
+  "Acknowledge that the previous response was stopped and ask what they want to do next.";
+
 function makeQueryService(type: PlatformType = "console") {
   const messages: MessageRecord[] = [];
   const stats: string[] = [];
@@ -102,6 +106,57 @@ describe("Gateway", () => {
     ]);
   });
 
+  test("routes Telegram /stop to follow-up prompt without platform context wrapping", async () => {
+    const agent = new EchoMockAgent();
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("telegram");
+
+    await gateway.submitMessage(
+      service,
+      inbound("/stop", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    expect(agent.calls.length).toBe(1);
+    expect(agent.calls[0]?.prompt).toBe(TELEGRAM_STOP_FOLLOW_UP_PROMPT);
+    expect(agent.calls[0]?.options?.platformContext).toBeUndefined();
+    expect(service.messages).toEqual([
+      { content: TELEGRAM_STOP_FOLLOW_UP_PROMPT, isPartial: true, options: { reason: "response" } },
+      {
+        content: TELEGRAM_STOP_FOLLOW_UP_PROMPT,
+        isPartial: false,
+        options: { reason: "response" },
+      },
+    ]);
+  });
+
+  test("treats /stop as a normal prompt for non-Telegram platforms", async () => {
+    const agent = new EchoMockAgent();
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("console");
+
+    await gateway.submitMessage(
+      service,
+      inbound("/stop", {
+        type: "console",
+      }),
+    );
+
+    expect(agent.calls.length).toBe(1);
+    expect(agent.calls[0]?.prompt).toBe("/stop");
+    expect(agent.calls[0]?.options?.platformContext?.type).toBe("console");
+  });
+
   test("queues a second request while one is active", async () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 80 });
     const gateway = new Gateway({
@@ -126,6 +181,125 @@ describe("Gateway", () => {
       },
       { content: "second", isPartial: true, options: { reason: "response" } },
       { content: "second", isPartial: false, options: { reason: "response" } },
+    ]);
+  });
+
+  test("aborts active query when Telegram /stop is received while busy", async () => {
+    const agent = new EchoMockAgent({ chunkDelayMs: 500 });
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+
+    const firstService = makeQueryService("telegram");
+    const secondService = makeQueryService("telegram");
+
+    const first = gateway.submitMessage(
+      firstService,
+      inbound("slow", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+    await sleep(25);
+    await gateway.submitMessage(
+      secondService,
+      inbound("/stop", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+    await first;
+
+    expect(agent.abortCount).toBeGreaterThanOrEqual(1);
+    expect(
+      secondService.messages.some(
+        (message) =>
+          message.content ===
+          "Busy with another task right now. I queued your message and will reply when it finishes.",
+      ),
+    ).toBe(false);
+    expect(secondService.messages).toEqual([
+      { content: TELEGRAM_STOP_FOLLOW_UP_PROMPT, isPartial: true, options: { reason: "response" } },
+      {
+        content: TELEGRAM_STOP_FOLLOW_UP_PROMPT,
+        isPartial: false,
+        options: { reason: "response" },
+      },
+    ]);
+  });
+
+  test("drains queued queries into Telegram /stop follow-up context", async () => {
+    const agent = new EchoMockAgent({ chunkDelayMs: 500 });
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+
+    const activeService = makeQueryService("telegram");
+    const queuedServiceOne = makeQueryService("telegram");
+    const queuedServiceTwo = makeQueryService("telegram");
+    const stopService = makeQueryService("telegram");
+
+    const active = gateway.submitMessage(
+      activeService,
+      inbound("long running request", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+    await sleep(25);
+
+    const queuedOne = gateway.submitMessage(
+      queuedServiceOne,
+      inbound("first queued ask", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+    const queuedTwo = gateway.submitMessage(
+      queuedServiceTwo,
+      inbound("second queued ask", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+    await sleep(25);
+
+    await gateway.submitMessage(
+      stopService,
+      inbound("/stop", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    await Promise.all([active, queuedOne, queuedTwo]);
+
+    expect(agent.abortCount).toBeGreaterThanOrEqual(1);
+    expect(agent.calls.length).toBe(2);
+    expect(agent.calls[0]?.prompt).toBe("long running request");
+    const stopPrompt = agent.calls[1]?.prompt ?? "";
+    expect(stopPrompt).toContain("queued");
+    expect(stopPrompt).toContain("first queued ask");
+    expect(stopPrompt).toContain("second queued ask");
+    expect(queuedServiceOne.messages).toEqual([
+      {
+        content:
+          "Busy with another task right now. I queued your message and will reply when it finishes.",
+        isPartial: false,
+        options: { reason: "response" },
+      },
+    ]);
+    expect(queuedServiceTwo.messages).toEqual([
+      {
+        content:
+          "Busy with another task right now. I queued your message and will reply when it finishes.",
+        isPartial: false,
+        options: { reason: "response" },
+      },
     ]);
   });
 
