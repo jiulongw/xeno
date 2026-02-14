@@ -15,6 +15,7 @@ const ATTACHMENT_TYPE_VALUES: [AttachmentType, ...AttachmentType[]] = [
   "image",
   "video",
   "audio",
+  "voice",
   "document",
   "animation",
   "sticker",

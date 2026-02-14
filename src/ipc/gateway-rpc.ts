@@ -664,6 +664,7 @@ const ATTACHMENT_TYPES: readonly AttachmentType[] = [
   "image",
   "video",
   "audio",
+  "voice",
   "document",
   "animation",
   "sticker",

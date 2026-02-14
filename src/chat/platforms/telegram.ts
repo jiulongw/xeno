@@ -28,7 +28,7 @@ export class TelegramPlatform implements ChatService {
   readonly capabilities: PlatformCapabilities = {
     supportsStreaming: true,
     supportsMarkdownTables: false,
-    supportedMediaTypes: ["image", "video", "audio", "document", "animation", "sticker"],
+    supportedMediaTypes: ["image", "video", "audio", "voice", "document", "animation", "sticker"],
   };
 
   private readonly home: string;
@@ -250,7 +250,7 @@ export class TelegramPlatform implements ChatService {
         const voice = message.voice;
         const attachment = await this.createAttachmentFromTelegramFile({
           fileId: voice.file_id,
-          type: "audio",
+          type: "voice",
           mimeType: voice.mime_type ?? "audio/ogg",
           caption: message.caption,
           size: voice.file_size,
@@ -550,6 +550,10 @@ export class TelegramPlatform implements ChatService {
           }
           case "audio": {
             await this.sendTelegramAudio(chatId, inputFile, caption);
+            break;
+          }
+          case "voice": {
+            await this.sendTelegramVoice(chatId, inputFile, caption);
             break;
           }
           case "document": {
@@ -975,6 +979,30 @@ export class TelegramPlatform implements ChatService {
     }
   }
 
+  private async sendTelegramVoice(
+    chatId: number,
+    inputFile: InputFile,
+    caption?: string,
+  ): Promise<void> {
+    if (!this.bot) {
+      throw new Error("Telegram bot is not initialized");
+    }
+
+    try {
+      await this.bot.api.sendVoice(
+        chatId,
+        inputFile,
+        caption ? this.markdownCaptionOptions(caption) : undefined,
+      );
+      return;
+    } catch (error) {
+      if (!caption || !this.isTelegramMarkdownParseError(error)) {
+        throw error;
+      }
+      await this.bot.api.sendVoice(chatId, inputFile, { caption });
+    }
+  }
+
   private async sendTelegramDocument(
     chatId: number,
     inputFile: InputFile,
@@ -1085,6 +1113,8 @@ function defaultExtensionForType(type: AttachmentType): string {
     case "video":
       return "mp4";
     case "audio":
+      return "ogg";
+    case "voice":
       return "ogg";
     case "animation":
       return "gif";

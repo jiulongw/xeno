@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-export type AttachmentType = "image" | "video" | "audio" | "document" | "animation" | "sticker";
+export type AttachmentType =
+  | "image"
+  | "video"
+  | "audio"
+  | "voice"
+  | "document"
+  | "animation"
+  | "sticker";
 
 export interface Attachment {
   type: AttachmentType;
