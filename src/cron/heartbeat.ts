@@ -16,7 +16,7 @@ export function createHeartbeatTask(options?: {
   return {
     id: HEARTBEAT_TASK_ID,
     name: "heartbeat",
-    prompt: "",
+    prompt: "Follow your heartbeat protocol.",
     schedule: {
       type: "interval",
       intervalMs: Math.max(1, intervalMinutes) * 60_000,

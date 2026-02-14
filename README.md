@@ -94,7 +94,6 @@ The agent home directory contains the following files (scaffolded from templates
 
 - `CLAUDE.md`, `BOOTSTRAP.md`, `HEARTBEAT.md`, `IDENTITY.md`, `MEMORY.md`, `SOUL.md`, `TOOLS.md`, `USER.md`
 - `.claude/settings.local.json`
-- `.claude/skills/heartbeat/SKILL.md`
 - `.claude/skills/run-cron-task/SKILL.md`
 - `.claude/skills/xeno-voice/SKILL.md` (with `scripts/xeno-voice`)
 - `memory/` directory

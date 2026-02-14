@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createHome } from "../../src/home";
@@ -39,7 +39,6 @@ describe("createHome", () => {
       "TOOLS.md",
       "USER.md",
       ".claude/settings.local.json",
-      ".claude/skills/heartbeat/SKILL.md",
       ".claude/skills/run-cron-task/SKILL.md",
       ".claude/skills/xeno-voice/SKILL.md",
       ".claude/skills/xeno-voice/scripts/xeno-voice",
@@ -89,19 +88,34 @@ describe("createHome", () => {
   test("always overwrites CLAUDE.md and skill files only", async () => {
     const home = await makeTempHome();
     const claudePath = join(home, "CLAUDE.md");
-    const heartbeatSkillPath = join(home, ".claude/skills/heartbeat/SKILL.md");
+    const runCronTaskSkillPath = join(home, ".claude/skills/run-cron-task/SKILL.md");
     const toolsPath = join(home, "TOOLS.md");
 
     await createHome(home);
 
     await Bun.write(claudePath, "custom claude");
-    await Bun.write(heartbeatSkillPath, "custom heartbeat skill");
+    await Bun.write(runCronTaskSkillPath, "custom run cron task skill");
     await Bun.write(toolsPath, "custom tools");
 
     await createHome(home);
 
     expect(await readFile(claudePath, "utf-8")).not.toBe("custom claude");
-    expect(await readFile(heartbeatSkillPath, "utf-8")).not.toBe("custom heartbeat skill");
+    expect(await readFile(runCronTaskSkillPath, "utf-8")).not.toBe("custom run cron task skill");
     expect(await readFile(toolsPath, "utf-8")).toBe("custom tools");
+  });
+
+  test("removes legacy skills/heartbeat/SKILL.md when scaffolding", async () => {
+    const home = await makeTempHome();
+    const legacySkillPath = join(home, "skills/heartbeat/SKILL.md");
+    const legacySkillDir = join(home, "skills/heartbeat");
+
+    await mkdir(legacySkillDir, { recursive: true });
+    await Bun.write(legacySkillPath, "legacy heartbeat skill");
+
+    await createHome(home);
+
+    expect(await Bun.file(legacySkillPath).exists()).toBe(false);
+    expect(await Bun.file(legacySkillDir).exists()).toBe(false);
+    expect(await Bun.file(join(home, ".claude/skills/run-cron-task/SKILL.md")).exists()).toBe(true);
   });
 });

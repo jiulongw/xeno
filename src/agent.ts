@@ -59,6 +59,10 @@ interface AugmentPromptOptions {
 class DeveloperSectionBuilder {
   private readonly lines: string[] = [];
 
+  get empty(): boolean {
+    return this.lines.length === 0;
+  }
+
   push(line: string): this {
     if (line.length > 0) {
       this.lines.push(line);
@@ -328,16 +332,17 @@ export class Agent implements AgentRuntime {
     }
 
     if (sessionType === "new") {
-      devHeader.push("This is a new session, wake up, get oriented first.");
+      devHeader.push("This is a new session. It's time to wake up. Get oriented first.");
     }
 
     if (cronContext) {
       const timeContext = this.getLocalTimeContext();
       const cronArgs = [`now:${timeContext.nowUtcIso}`, `local_now:${timeContext.nowLocalIso}`];
-      if (cronContext.taskId === HEARTBEAT_TASK_ID) {
-        basePrompt = `/heartbeat ${cronArgs.join(" ")} ${basePrompt}`;
-      } else if (cronContext.taskId === WEEKLY_NEW_SESSION_TASK_ID) {
-        // Do nothing, we don't need to augment the prompt for this task.
+      if (
+        cronContext.taskId === HEARTBEAT_TASK_ID ||
+        cronContext.taskId === WEEKLY_NEW_SESSION_TASK_ID
+      ) {
+        devHeader.push(`You are triggered by cron task ${cronContext.taskId}.`);
       } else {
         basePrompt = `/run-cron-task task_id:${cronContext.taskId} ${cronArgs.join(" ")} ${basePrompt}`;
       }
@@ -362,6 +367,10 @@ export class Agent implements AgentRuntime {
         "This message includes attachments. Use the Read tool to inspect files as needed.",
       );
       devFooter.pushAll(lines);
+    }
+
+    if (!devHeader.empty) {
+      devHeader.push(`current local time is ${new Date().toString()}`);
     }
 
     return [devHeader.build(), basePrompt, devFooter.build()]

@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -13,7 +13,6 @@ import toolsTemplate from "../template/TOOLS.md" with { type: "text" };
 import userTemplate from "../template/USER.md" with { type: "text" };
 import claudeSettingsTemplate from "../template/claude.settings.json";
 import configTemplate from "../template/config.json";
-import heartbeatSkill from "../template/skills/heartbeat/SKILL.md" with { type: "text" };
 import runCronTaskSkill from "../template/skills/run-cron-task/SKILL.md" with { type: "text" };
 import applescriptSkill from "../template/skills/applescript/SKILL.md" with { type: "text" };
 import applescriptCalendarRef from "../template/skills/applescript/references/calendar.md" with { type: "text" };
@@ -32,6 +31,8 @@ type TemplateFile = {
 const CLAUDE_FILE = "CLAUDE.md";
 const BOOTSTRAP_FILE = "BOOTSTRAP.md";
 const SKILLS_PREFIX = ".claude/skills/";
+const LEGACY_HEARTBEAT_SKILL_FILE = "skills/heartbeat/SKILL.md";
+const LEGACY_HEARTBEAT_SKILL_DIR = "skills/heartbeat";
 
 const TEMPLATE_FILES: TemplateFile[] = [
   { relativePath: CLAUDE_FILE, content: agentsTemplate },
@@ -46,7 +47,6 @@ const TEMPLATE_FILES: TemplateFile[] = [
     relativePath: ".claude/settings.local.json",
     content: JSON.stringify(claudeSettingsTemplate, null, 2) + "\n",
   },
-  { relativePath: ".claude/skills/heartbeat/SKILL.md", content: heartbeatSkill },
   { relativePath: ".claude/skills/run-cron-task/SKILL.md", content: runCronTaskSkill },
   { relativePath: ".claude/skills/applescript/SKILL.md", content: applescriptSkill },
   {
@@ -75,6 +75,7 @@ export async function createHome(homeDir: string): Promise<void> {
   await mkdir(homeDir, { recursive: true });
   await mkdir(join(homeDir, "memory"), { recursive: true });
   await mkdir(join(homeDir, "media", "received"), { recursive: true });
+  await cleanupLegacyHeartbeatSkill(homeDir);
   const claudeAlreadyExists = existsSync(join(homeDir, CLAUDE_FILE));
 
   for (const template of TEMPLATE_FILES) {
@@ -97,6 +98,23 @@ export async function createHome(homeDir: string): Promise<void> {
   }
 
   await scaffoldConfig(homeDir);
+}
+
+async function cleanupLegacyHeartbeatSkill(homeDir: string): Promise<void> {
+  await rm(join(homeDir, LEGACY_HEARTBEAT_SKILL_FILE), { force: true });
+  const legacyHeartbeatDir = join(homeDir, LEGACY_HEARTBEAT_SKILL_DIR);
+
+  try {
+    const entries = await readdir(legacyHeartbeatDir);
+    if (entries.length === 0) {
+      await rmdir(legacyHeartbeatDir);
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      throw error;
+    }
+  }
 }
 
 async function scaffoldConfig(homeDir: string): Promise<void> {

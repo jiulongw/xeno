@@ -172,7 +172,7 @@ describe("Agent augmentPrompt cron context", () => {
     }
   });
 
-  test("uses heartbeat command and includes timezone fields", () => {
+  test("uses heartbeat cron developer context with current local time", () => {
     const home = createTempHome();
     const agent = new Agent(home);
 
@@ -189,9 +189,12 @@ describe("Agent augmentPrompt cron context", () => {
         cronContext: { taskId: "__heartbeat__" },
       });
 
-      expect(prompt).toContain("/heartbeat ");
-      expect(prompt).toContain("now:");
-      expect(prompt).toContain("local_now:");
+      expect(prompt).toContain("You are triggered by cron task __heartbeat__.");
+      expect(prompt).toContain("current local time is ");
+      expect(prompt).not.toContain("/heartbeat ");
+      expect(prompt).not.toContain("/run-cron-task");
+      expect(prompt).not.toContain("now:");
+      expect(prompt).not.toContain("local_now:");
       expect(prompt).not.toContain("local_tz:");
       expect(prompt).not.toContain("local_hour:");
     } finally {

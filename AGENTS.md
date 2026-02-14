@@ -63,7 +63,6 @@
   - `TOOLS.md`
   - `USER.md`
   - `.claude/settings.local.json`
-  - `.claude/skills/heartbeat/SKILL.md`
   - `.claude/skills/run-cron-task/SKILL.md`
   - `.claude/skills/applescript/SKILL.md` (+ `references/calendar.md`, `mail.md`, `notes.md`, `reminders.md`)
   - `.claude/skills/xeno-voice/SKILL.md` (+ `scripts/xeno-voice`)
