@@ -148,6 +148,28 @@ describe("Gateway", () => {
     ]);
   });
 
+  test("sends compact done when /compact returns no text", async () => {
+    const agent = new EchoMockAgent({ emitStreamText: false });
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+    });
+    const service = makeQueryService("telegram");
+
+    await gateway.submitMessage(
+      service,
+      inbound("/compact", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    expect(service.messages).toEqual([
+      { content: "compact done", isPartial: false, options: { reason: "response" } },
+    ]);
+  });
+
   test("routes Telegram /stop to follow-up prompt without platform context wrapping", async () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
@@ -253,6 +275,7 @@ describe("Gateway", () => {
     await first;
 
     expect(agent.abortCount).toBeGreaterThanOrEqual(1);
+    expect(firstService.messages).toEqual([]);
     expect(
       secondService.messages.some(
         (message) =>
@@ -357,9 +380,7 @@ describe("Gateway", () => {
     await pending;
 
     expect(agent.abortCount).toBeGreaterThanOrEqual(1);
-    expect(service.messages).toEqual([
-      { content: "[No response]", isPartial: false, options: { reason: "response" } },
-    ]);
+    expect(service.messages).toEqual([]);
   });
 
   test("sends fallback error message on query failure", async () => {

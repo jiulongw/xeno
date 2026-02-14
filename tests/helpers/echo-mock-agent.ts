@@ -9,6 +9,7 @@ export interface EchoMockAgentOptions {
   history?: ConversationTurn[];
   chunkDelayMs?: number;
   failWith?: string | Error;
+  emitStreamText?: boolean;
 }
 
 export class EchoMockAgent implements AgentRuntime {
@@ -18,6 +19,7 @@ export class EchoMockAgent implements AgentRuntime {
   private readonly history: ConversationTurn[];
   private readonly chunkDelayMs: number;
   private readonly failWith: string | Error | undefined;
+  private readonly emitStreamText: boolean;
   private activeAbortController: AbortController | null = null;
   private lastChannel: LastChannel | null = null;
 
@@ -28,6 +30,7 @@ export class EchoMockAgent implements AgentRuntime {
     this.history = options.history ?? [];
     this.chunkDelayMs = options.chunkDelayMs ?? 0;
     this.failWith = options.failWith;
+    this.emitStreamText = options.emitStreamText ?? true;
   }
 
   getSessionId(): string | null {
@@ -67,20 +70,22 @@ export class EchoMockAgent implements AgentRuntime {
         await sleep(this.chunkDelayMs, undefined, { signal: abortController.signal });
       }
 
-      yield {
-        type: "stream_event",
-        event: {
-          type: "content_block_start",
-          index: 0,
-          content_block: {
-            type: "text",
-            text: userPrompt,
+      if (this.emitStreamText) {
+        yield {
+          type: "stream_event",
+          event: {
+            type: "content_block_start",
+            index: 0,
+            content_block: {
+              type: "text",
+              text: userPrompt,
+            },
           },
-        },
-        parent_tool_use_id: null,
-        uuid: randomUUID(),
-        session_id: this.sessionId ?? "echo-session",
-      } as SDKMessage;
+          parent_tool_use_id: null,
+          uuid: randomUUID(),
+          session_id: this.sessionId ?? "echo-session",
+        } as SDKMessage;
+      }
 
       const result: SDKResultMessage = {
         type: "result",

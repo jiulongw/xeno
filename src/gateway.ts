@@ -16,6 +16,7 @@ import { createReplyAttachmentMcpServer } from "./mcp/reply-attachment";
 const USER_QUERY_DEQUEUED_ERROR = "Queued user query was removed.";
 const MAX_QUEUED_MESSAGES_IN_PROMPT = 20;
 const MAX_QUEUED_MESSAGE_CONTENT_LENGTH = 280;
+const COMPACT_DONE_MESSAGE = "compact done";
 
 const TELEGRAM_STOP_FOLLOW_UP_PROMPT =
   "The Telegram user intentionally sent /stop to abort the previous response. " +
@@ -307,6 +308,7 @@ export class Gateway {
     let streamed = "";
     let finalAssistant = "";
     let failedResponse: string | null = null;
+    let aborted = false;
     const collectedAttachments: Attachment[] = [];
     const prompt = isCompactCommand
       ? "/compact"
@@ -374,24 +376,40 @@ export class Gateway {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const lowered = errorMessage.toLowerCase();
       const isAbortError = lowered.includes("aborted") || lowered.includes("abort");
-      if (!isAbortError) {
+      if (isAbortError) {
+        aborted = true;
+      } else {
         logger.error({ error, service: service.type }, "Gateway query failed");
         failedResponse = `Error: ${errorMessage}`;
       }
     } finally {
-      const finalContent = failedResponse ?? (finalAssistant || streamed || "[No response]");
+      const responseContent = failedResponse ?? (finalAssistant || streamed);
+      const hasResponseContent = responseContent.trim().length > 0;
+      const hasAttachments = collectedAttachments.length > 0;
+      const skipPlaceholderOnAbort = aborted && !hasResponseContent;
+      const useCompactDoneMessage =
+        isCompactCommand && !aborted && !failedResponse && !hasResponseContent;
       const finalOptions: OutboundMessageOptions = {
         ...responseOptions,
         attachments: collectedAttachments.length > 0 ? [...collectedAttachments] : undefined,
+        ...(skipPlaceholderOnAbort ? { suppressText: true } : {}),
       };
-      try {
-        await service.sendMessage(
-          formatMessage(finalContent, inbound.context, service.capabilities),
-          false,
-          finalOptions,
-        );
-      } catch (error) {
-        logger.error({ error, service: service.type }, "Failed to send final message");
+
+      if (!skipPlaceholderOnAbort || hasAttachments) {
+        const finalContent = hasResponseContent
+          ? responseContent
+          : useCompactDoneMessage
+            ? COMPACT_DONE_MESSAGE
+            : "[No response]";
+        try {
+          await service.sendMessage(
+            formatMessage(finalContent, inbound.context, service.capabilities),
+            false,
+            finalOptions,
+          );
+        } catch (error) {
+          logger.error({ error, service: service.type }, "Failed to send final message");
+        }
       }
       try {
         await service.stopTyping?.();
