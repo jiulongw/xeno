@@ -1,6 +1,6 @@
 import type { Attachment, AttachmentType } from "../media";
 
-export type PlatformType = "console" | "telegram" | "discord" | "slack";
+export type PlatformType = "telegram" | "discord" | "slack" | "rpc";
 
 export interface PlatformContext {
   type: PlatformType;

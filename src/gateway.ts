@@ -27,6 +27,7 @@ export interface GatewayConfig {
   agent: AgentRuntime;
   services: ChatService[];
   mcpServers?: Record<string, McpServerConfig>;
+  rpcMcpServers?: Record<string, McpServerConfig>;
 }
 
 export interface GatewayCronQueryRequest {
@@ -60,6 +61,7 @@ export class Gateway {
   private readonly registry = new ChatServiceRegistry();
   private readonly agent: AgentRuntime;
   private readonly mcpServers: Record<string, McpServerConfig> | undefined;
+  private readonly rpcMcpServers: Record<string, McpServerConfig> | undefined;
 
   private activeQuery = false;
   private shuttingDown = false;
@@ -68,6 +70,7 @@ export class Gateway {
   constructor(config: GatewayConfig) {
     this.agent = config.agent;
     this.mcpServers = config.mcpServers;
+    this.rpcMcpServers = config.rpcMcpServers;
 
     for (const service of config.services) {
       this.registry.register(service);
@@ -318,23 +321,25 @@ export class Gateway {
         ? buildTelegramStopFollowUpPrompt(drainedPendingQueries)
         : inbound.content;
     const platformContext = isCompactCommand || isTelegramStopCommand ? undefined : inbound.context;
-    const replyAttachmentMcpServer = createReplyAttachmentMcpServer({
-      sendAttachment: async (attachment) => {
-        const supportedMediaTypes = service.capabilities.supportedMediaTypes;
-        if (supportedMediaTypes && !supportedMediaTypes.includes(attachment.type)) {
-          return {
-            delivered: false,
-            reason: `${service.type} does not support ${attachment.type} attachments.`,
-          };
-        }
+    const queryMcpServers =
+      inbound.context.type === "rpc"
+        ? mergeMcpServers(this.mcpServers, this.rpcMcpServers)
+        : mergeMcpServers(this.mcpServers, {
+            "xeno-reply-attachment": createReplyAttachmentMcpServer({
+              sendAttachment: async (attachment) => {
+                const supportedMediaTypes = service.capabilities.supportedMediaTypes;
+                if (supportedMediaTypes && !supportedMediaTypes.includes(attachment.type)) {
+                  return {
+                    delivered: false,
+                    reason: `${service.type} does not support ${attachment.type} attachments.`,
+                  };
+                }
 
-        collectedAttachments.push(attachment);
-        return { delivered: true };
-      },
-    });
-    const queryMcpServers = mergeMcpServers(this.mcpServers, {
-      "xeno-reply-attachment": replyAttachmentMcpServer,
-    });
+                collectedAttachments.push(attachment);
+                return { delivered: true };
+              },
+            }),
+          });
     try {
       await service.startTyping?.();
     } catch (error) {

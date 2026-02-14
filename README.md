@@ -129,6 +129,7 @@ bun run src/index.ts uninstall
 
 `console` requires a running `serve` process for the same `--home`.
 Socket path: `<home>/.xeno/gateway.sock`.
+RPC protocol reference: `docs/gateway-json-rpc.md`.
 
 ## Telegram setup
 

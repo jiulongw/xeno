@@ -8,8 +8,9 @@ type MessengerMcpServerOptions = {
   sendMessage: (request: SendMessageRequest) => Promise<SendMessageResult>;
 };
 
-const PLATFORM_VALUES: [PlatformType, ...PlatformType[]] = [
-  "console",
+type OutboundPlatformType = Exclude<PlatformType, "rpc">;
+
+const PLATFORM_VALUES: [OutboundPlatformType, ...OutboundPlatformType[]] = [
   "telegram",
   "discord",
   "slack",

@@ -17,6 +17,8 @@ export interface GatewaySessionSnapshot {
   history: ConversationTurn[];
 }
 
+export type GatewayRpcClientContext = Omit<PlatformContext, "type">;
+
 type GatewayQueryParams = {
   requestId: string;
   content: string;
@@ -64,6 +66,10 @@ export interface GatewayRpcServerOptions {
   gateway: Gateway;
   runHeartbeat?: () => Promise<GatewayTaskTriggerResponse>;
   runNewSession?: () => Promise<GatewayTaskTriggerResponse>;
+}
+
+export interface GatewayRpcClientOptions {
+  clientName?: string;
 }
 
 export class GatewayRpcServer {
@@ -280,7 +286,7 @@ export class GatewayRpcServer {
 
     const contextRecord = context as Record<string, unknown>;
     const type = contextRecord.type;
-    if (type !== "console" && type !== "telegram" && type !== "discord" && type !== "slack") {
+    if (type !== "rpc") {
       throw new Error("Invalid query context type.");
     }
 
@@ -289,7 +295,7 @@ export class GatewayRpcServer {
       content,
       attachments,
       context: {
-        type,
+        type: "rpc",
         userId: typeof contextRecord.userId === "string" ? contextRecord.userId : undefined,
         channelId:
           typeof contextRecord.channelId === "string" ? contextRecord.channelId : undefined,
@@ -378,6 +384,7 @@ type PendingQuery = {
 export class GatewayRpcClient {
   private readonly home: string;
   private readonly socketPath: string;
+  private readonly clientName: string | null;
   private readonly clientLogger;
 
   private socket: Socket | null = null;
@@ -385,10 +392,15 @@ export class GatewayRpcClient {
   private pendingQueries = new Map<string, PendingQuery>();
   private disconnectedHandler: (() => void) | null = null;
 
-  constructor(home: string) {
+  constructor(home: string, options?: GatewayRpcClientOptions) {
     this.home = home;
     this.socketPath = getGatewaySocketPath(home);
-    this.clientLogger = logger.child({ component: "gateway-rpc-client", home: this.home });
+    this.clientName = normalizeClientName(options?.clientName);
+    this.clientLogger = logger.child({
+      component: "gateway-rpc-client",
+      home: this.home,
+      clientName: this.clientName ?? undefined,
+    });
   }
 
   setDisconnectedHandler(handler: () => void): void {
@@ -423,12 +435,22 @@ export class GatewayRpcClient {
 
   async query(
     content: string,
-    context: PlatformContext,
+    context: GatewayRpcClientContext,
     handlers: GatewayRpcQueryHandlers,
     attachments?: Attachment[],
   ): Promise<void> {
     const peer = this.requirePeer();
     const requestId = randomUUID();
+    const metadata: Record<string, unknown> = {
+      ...(context.metadata ?? {}),
+      ...(this.clientName ? { clientName: this.clientName } : {}),
+    };
+    const normalizedContext: PlatformContext = {
+      type: "rpc",
+      userId: context.userId,
+      channelId: context.channelId,
+      metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    };
 
     const completion = new Promise<void>((resolve, reject) => {
       this.pendingQueries.set(requestId, { handlers, resolve, reject });
@@ -438,7 +460,7 @@ export class GatewayRpcClient {
       await peer.request("gateway.query", {
         requestId,
         content,
-        context,
+        context: normalizedContext,
         attachments,
       } satisfies GatewayQueryParams);
       await completion;
@@ -715,4 +737,12 @@ async function connectSocket(socketPath: string): Promise<Socket> {
       reject(error);
     });
   });
+}
+
+function normalizeClientName(value: string | undefined): string | null {
+  const name = value?.trim();
+  if (!name) {
+    return null;
+  }
+  return name;
 }

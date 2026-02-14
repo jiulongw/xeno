@@ -110,6 +110,9 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
     mcpServers: {
       "xeno-cron": cronMcpServer,
     },
+    rpcMcpServers: {
+      "xeno-messenger": messengerMcpServer,
+    },
   });
   gateway = gatewayInstance;
   const rpcServer = new GatewayRpcServer({

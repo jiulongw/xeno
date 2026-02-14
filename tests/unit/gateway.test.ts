@@ -37,7 +37,7 @@ const TELEGRAM_STOP_FOLLOW_UP_PROMPT =
   "The Telegram user intentionally sent /stop to abort the previous response. " +
   "Acknowledge that the previous response was stopped and ask what they want to do next.";
 
-function makeQueryService(type: PlatformType = "console"): QueryServiceMock {
+function makeQueryService(type: PlatformType = "rpc"): QueryServiceMock {
   const messages: MessageRecord[] = [];
   const stats: string[] = [];
 
@@ -61,7 +61,7 @@ function makeQueryService(type: PlatformType = "console"): QueryServiceMock {
 function inbound(
   content: string,
   context: ChatInboundMessage["context"] = {
-    type: "console",
+    type: "rpc",
     metadata: {
       source: "test",
     },
@@ -91,7 +91,7 @@ describe("Gateway", () => {
     expect(service.stats.length).toBe(1);
     expect(service.stats[0]).toContain("result=success");
     expect(agent.calls.length).toBe(1);
-    expect(agent.calls[0]?.options?.platformContext?.type).toBe("console");
+    expect(agent.calls[0]?.options?.platformContext?.type).toBe("rpc");
   });
 
   test("starts and stops typing around reply query", async () => {
@@ -206,18 +206,18 @@ describe("Gateway", () => {
       agent,
       services: [],
     });
-    const service = makeQueryService("console");
+    const service = makeQueryService("rpc");
 
     await gateway.submitMessage(
       service,
       inbound("/stop", {
-        type: "console",
+        type: "rpc",
       }),
     );
 
     expect(agent.calls.length).toBe(1);
     expect(agent.calls[0]?.prompt).toBe("/stop");
-    expect(agent.calls[0]?.options?.platformContext?.type).toBe("console");
+    expect(agent.calls[0]?.options?.platformContext?.type).toBe("rpc");
   });
 
   test("queues a second request while one is active", async () => {
@@ -474,7 +474,7 @@ describe("Gateway", () => {
     });
   });
 
-  test("passes configured MCP servers to agent queries", async () => {
+  test("passes configured MCP servers to rpc queries", async () => {
     const agent = new EchoMockAgent();
     const mcpServers: Record<string, McpServerConfig> = {
       "xeno-cron": {
@@ -496,7 +496,7 @@ describe("Gateway", () => {
 
     const configured = agent.calls[0]?.options?.mcpServers;
     expect(configured?.["xeno-cron"]).toEqual(mcpServers["xeno-cron"]);
-    expect(configured?.["xeno-reply-attachment"]).toBeDefined();
+    expect(configured?.["xeno-reply-attachment"]).toBeUndefined();
   });
 
   test("adds reply attachment MCP server to user queries", async () => {
@@ -519,6 +519,41 @@ describe("Gateway", () => {
     const configured = agent.calls[0]?.options?.mcpServers;
     expect(configured).toBeDefined();
     expect(configured?.["xeno-reply-attachment"]).toBeDefined();
+  });
+
+  test("adds rpc-specific MCP servers only for rpc user queries", async () => {
+    const agent = new EchoMockAgent();
+    const rpcOnlyMcpServers: Record<string, McpServerConfig> = {
+      "xeno-messenger": {
+        type: "stdio",
+        command: "echo",
+        args: ["rpc-notify"],
+      },
+    };
+
+    const gateway = new Gateway({
+      home: "/tmp/test-home",
+      agent,
+      services: [],
+      rpcMcpServers: rpcOnlyMcpServers,
+    });
+
+    await gateway.submitMessage(makeQueryService("rpc"), inbound("hello from rpc"));
+    await gateway.submitMessage(
+      makeQueryService("telegram"),
+      inbound("hello from telegram", {
+        type: "telegram",
+        channelId: "1001",
+      }),
+    );
+
+    const rpcConfigured = agent.calls[0]?.options?.mcpServers;
+    expect(rpcConfigured?.["xeno-messenger"]).toEqual(rpcOnlyMcpServers["xeno-messenger"]);
+    expect(rpcConfigured?.["xeno-reply-attachment"]).toBeUndefined();
+
+    const telegramConfigured = agent.calls[1]?.options?.mcpServers;
+    expect(telegramConfigured?.["xeno-messenger"]).toBeUndefined();
+    expect(telegramConfigured?.["xeno-reply-attachment"]).toBeDefined();
   });
 
   test("merges cron query MCP servers with gateway MCP servers", async () => {
@@ -582,7 +617,7 @@ describe("Gateway", () => {
       type,
       capabilities: {
         supportsStreaming: true,
-        supportsMarkdownTables: type === "console",
+        supportsMarkdownTables: type === "rpc",
       },
       start: async () => undefined,
       stop: async () => undefined,
@@ -596,14 +631,14 @@ describe("Gateway", () => {
     const gateway = new Gateway({
       home: "/tmp/test-home",
       agent,
-      services: [createService("console"), createService("telegram")],
+      services: [createService("rpc"), createService("telegram")],
     });
 
     await gateway.broadcastMessage("attention");
 
     expect(deliveries).toEqual([
       {
-        service: "console",
+        service: "rpc",
         content: "attention",
         isPartial: false,
         options: {

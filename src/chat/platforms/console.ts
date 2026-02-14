@@ -24,7 +24,7 @@ export interface ConsolePlatformOptions {
 }
 
 export class ConsolePlatform implements ChatService {
-  readonly type: PlatformType = "console";
+  readonly type: PlatformType = "rpc";
   readonly capabilities: PlatformCapabilities = {
     supportsStreaming: true,
     supportsMarkdownTables: true,
@@ -209,7 +209,7 @@ export class ConsolePlatform implements ChatService {
       const inbound: ChatInboundMessage = {
         content: userInput,
         context: {
-          type: "console",
+          type: "rpc",
           channelId: CONSOLE_CHANNEL_ID,
           metadata: { home: this.home },
         },

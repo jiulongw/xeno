@@ -9,7 +9,7 @@ const CONSOLE_CHANNEL_ID = "default";
 const PROMPT = "> ";
 
 export async function runConsoleClient(home: string): Promise<void> {
-  const rpcClient = new GatewayRpcClient(home);
+  const rpcClient = new GatewayRpcClient(home, { clientName: "console" });
   const platformLogger = logger.child({ service: "console-client", home });
 
   try {
@@ -154,7 +154,6 @@ export async function runConsoleClient(home: string): Promise<void> {
       await rpcClient.query(
         userInput,
         {
-          type: "console",
           channelId: CONSOLE_CHANNEL_ID,
           metadata: { home },
         },

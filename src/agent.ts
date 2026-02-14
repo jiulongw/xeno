@@ -137,8 +137,8 @@ export class Agent implements AgentRuntime {
 
   updateLastChannel(context: PlatformContext): void {
     const channelId = context.channelId?.trim();
-    if (context.type === "console" || !channelId) {
-      // proactive message not supported in console.
+    if (context.type === "rpc" || !channelId) {
+      // proactive message is not supported in rpc request contexts.
       return;
     }
 
@@ -496,7 +496,7 @@ export class Agent implements AgentRuntime {
   }
 
   private isPlatformType(value: unknown): value is PlatformType {
-    return value === "console" || value === "telegram" || value === "discord" || value === "slack";
+    return value === "telegram" || value === "discord" || value === "slack" || value === "rpc";
   }
 
   private isSameLastChannel(left: LastChannel | null, right: LastChannel): boolean {

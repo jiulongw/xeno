@@ -15,7 +15,7 @@ function asServerInternals(server: GatewayRpcServer): {
       requestId: string;
       content: string;
       context: {
-        type: "console" | "telegram" | "discord" | "slack";
+        type: "rpc";
         metadata?: Record<string, unknown>;
       };
     },
@@ -29,7 +29,7 @@ function asServerInternals(server: GatewayRpcServer): {
         requestId: string;
         content: string;
         context: {
-          type: "console" | "telegram" | "discord" | "slack";
+          type: "rpc";
           metadata?: Record<string, unknown>;
         };
       },
@@ -71,7 +71,7 @@ describe("Gateway RPC integration", () => {
       requestId: "req-1",
       content: "echo this",
       context: {
-        type: "console",
+        type: "rpc",
         metadata: { source: "integration-test" },
       },
     });
@@ -107,7 +107,7 @@ describe("Gateway RPC integration", () => {
     const { parseQueryParams } = asServerInternals(server);
 
     expect(() =>
-      parseQueryParams({ requestId: "", content: "x", context: { type: "console" } }),
+      parseQueryParams({ requestId: "", content: "x", context: { type: "rpc" } }),
     ).toThrow("Invalid query requestId.");
     expect(() =>
       parseQueryParams({
@@ -119,7 +119,7 @@ describe("Gateway RPC integration", () => {
   });
 
   test("GatewayRpcClient handles initialize/query/abort request flow", async () => {
-    const client = new GatewayRpcClient("/tmp/test-home");
+    const client = new GatewayRpcClient("/tmp/test-home", { clientName: "console" });
     const internals = asClientInternals(client);
     const streams: Array<{ content: string; isPartial: boolean }> = [];
     const stats: string[] = [];
@@ -156,7 +156,16 @@ describe("Gateway RPC integration", () => {
         }
 
         if (method === "gateway.query") {
-          const requestId = (params as { requestId: string }).requestId;
+          const queryParams = params as {
+            requestId: string;
+            context: { type: string; metadata?: Record<string, unknown> };
+          };
+          expect(queryParams.context.type).toBe("rpc");
+          expect(queryParams.context.metadata).toMatchObject({
+            source: "integration-test",
+            clientName: "console",
+          });
+          const requestId = queryParams.requestId;
           queueMicrotask(() => {
             internals.handleNotification("gateway.stream", {
               requestId,
@@ -189,7 +198,11 @@ describe("Gateway RPC integration", () => {
 
     await client.query(
       "hello",
-      { type: "console" },
+      {
+        metadata: {
+          source: "integration-test",
+        },
+      },
       {
         onStream: (content, isPartial) => {
           streams.push({ content, isPartial });

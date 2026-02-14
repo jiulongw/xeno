@@ -94,7 +94,23 @@ describe("Agent session last_channel", () => {
 
     try {
       agent.updateLastChannel({
-        type: "console",
+        type: "rpc",
+      });
+
+      expect(agent.getLastChannel()).toBeNull();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("does not persist last_channel for rpc context", () => {
+    const home = createTempHome();
+    const agent = new Agent(home);
+
+    try {
+      agent.updateLastChannel({
+        type: "rpc",
+        channelId: "rpc-client-1",
       });
 
       expect(agent.getLastChannel()).toBeNull();
