@@ -33,6 +33,7 @@ export interface GatewayCronQueryRequest {
   taskId: string;
   prompt: string;
   model?: string;
+  isolatedContext?: boolean;
   abortSignal?: AbortSignal;
   mcpServers?: Record<string, McpServerConfig>;
 }
@@ -130,6 +131,7 @@ export class Gateway {
     const cronContext: CronContext = {
       taskId: request.taskId,
       model: request.model,
+      isolatedContext: request.isolatedContext,
     };
     const cronMcpServers = mergeMcpServers(this.mcpServers, request.mcpServers);
     const onAbort = () => {

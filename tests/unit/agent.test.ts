@@ -154,11 +154,11 @@ describe("Agent augmentPrompt cron context", () => {
           augmentPrompt: (
             userPrompt: string,
             sessionType: "new" | "resume" | "compact",
-            options: { cronContext?: { taskId: string } },
+            options: { cronContext?: { taskId: string; isolatedContext?: boolean } },
           ) => string;
         }
       ).augmentPrompt("summarize pending work", "resume", {
-        cronContext: { taskId: "daily-sync" },
+        cronContext: { taskId: "daily-sync", isolatedContext: true },
       });
 
       expect(prompt).toContain("/run-cron-task task_id:daily-sync");
@@ -182,7 +182,7 @@ describe("Agent augmentPrompt cron context", () => {
           augmentPrompt: (
             userPrompt: string,
             sessionType: "new" | "resume" | "compact",
-            options: { cronContext?: { taskId: string } },
+            options: { cronContext?: { taskId: string; isolatedContext?: boolean } },
           ) => string;
         }
       ).augmentPrompt("check status", "resume", {
@@ -197,6 +197,33 @@ describe("Agent augmentPrompt cron context", () => {
       expect(prompt).not.toContain("local_now:");
       expect(prompt).not.toContain("local_tz:");
       expect(prompt).not.toContain("local_hour:");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("uses developer context (not run-cron-task wrapper) when cron is non-isolated", () => {
+    const home = createTempHome();
+    const agent = new Agent(home);
+
+    try {
+      const prompt = (
+        agent as unknown as {
+          augmentPrompt: (
+            userPrompt: string,
+            sessionType: "new" | "resume" | "compact",
+            options: { cronContext?: { taskId: string; isolatedContext?: boolean } },
+          ) => string;
+        }
+      ).augmentPrompt("summarize pending work", "resume", {
+        cronContext: { taskId: "daily-sync", isolatedContext: false },
+      });
+
+      expect(prompt).toContain("You are triggered by cron task daily-sync.");
+      expect(prompt).toContain("current local time is ");
+      expect(prompt).not.toContain("/run-cron-task");
+      expect(prompt).not.toContain("now:");
+      expect(prompt).not.toContain("local_now:");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

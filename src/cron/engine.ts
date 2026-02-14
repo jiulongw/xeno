@@ -3,6 +3,7 @@ import cron, { type ScheduledTask } from "node-cron";
 import { logger } from "../logger";
 import { CronStore } from "./store";
 import {
+  CRON_DEFAULT_ISOLATED_CONTEXT,
   CRON_DEFAULT_MAX_TURNS,
   CRON_DEFAULT_MODEL,
   CRON_DEFAULT_NOTIFY_MODE,
@@ -26,6 +27,7 @@ export interface CronQueryRequest {
   taskId: string;
   prompt: string;
   model: string;
+  isolatedContext: boolean;
   abortSignal: AbortSignal;
 }
 
@@ -395,6 +397,7 @@ export class CronEngine {
         taskId: task.id,
         prompt: task.prompt,
         model: CRON_DEFAULT_MODEL,
+        isolatedContext: task.isolatedContext,
         abortSignal: abortController.signal,
       });
       result = runResult.result;
@@ -541,6 +544,7 @@ function createTaskFromInput(input: CronTaskCreateInput): CronTask {
     prompt,
     schedule,
     notify,
+    isolatedContext: input.isolatedContext ?? CRON_DEFAULT_ISOLATED_CONTEXT,
     maxTurns,
     enabled: input.enabled ?? true,
     createdAt: new Date().toISOString(),
@@ -562,6 +566,9 @@ function applyTaskUpdates(task: CronTask, updates: CronTaskUpdateInput): CronTas
   if (updates.notify !== undefined) {
     validateNotifyMode(updates.notify);
     next.notify = updates.notify;
+  }
+  if (updates.isolatedContext !== undefined) {
+    next.isolatedContext = updates.isolatedContext;
   }
   if (updates.maxTurns !== undefined) {
     next.maxTurns =

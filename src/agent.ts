@@ -27,6 +27,7 @@ export interface QueryOptions {
 export interface CronContext {
   taskId: string;
   model?: string;
+  isolatedContext?: boolean;
 }
 
 export interface ConversationTurn {
@@ -340,7 +341,8 @@ export class Agent implements AgentRuntime {
       const cronArgs = [`now:${timeContext.nowUtcIso}`, `local_now:${timeContext.nowLocalIso}`];
       if (
         cronContext.taskId === HEARTBEAT_TASK_ID ||
-        cronContext.taskId === WEEKLY_NEW_SESSION_TASK_ID
+        cronContext.taskId === WEEKLY_NEW_SESSION_TASK_ID ||
+        !cronContext.isolatedContext
       ) {
         devHeader.push(`You are triggered by cron task ${cronContext.taskId}.`);
       } else {

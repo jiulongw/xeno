@@ -548,6 +548,7 @@ describe("Gateway", () => {
     const result = await gateway.runCronQuery({
       taskId: "task-1",
       prompt: "hello from cron",
+      isolatedContext: true,
       mcpServers: cronOnlyMcpServers,
     });
 
@@ -555,6 +556,11 @@ describe("Gateway", () => {
     expect(agent.calls[0]?.options?.mcpServers).toEqual({
       ...baseMcpServers,
       ...cronOnlyMcpServers,
+    });
+    expect(agent.calls[0]?.options?.cronContext).toEqual({
+      taskId: "task-1",
+      model: undefined,
+      isolatedContext: true,
     });
   });
 

@@ -18,6 +18,7 @@ export function createCronMcpServer(engine: CronEngine) {
           run_at: z.string().min(1).optional(),
           cron_expression: z.string().min(1).optional(),
           notify: z.enum(["auto", "never"]).optional(),
+          isolated_context: z.boolean().optional(),
           max_turns: z.number().int().positive().optional(),
           enabled: z.boolean().optional(),
         },
@@ -33,6 +34,7 @@ export function createCronMcpServer(engine: CronEngine) {
             prompt: args.prompt,
             schedule,
             notify: args.notify,
+            isolatedContext: args.isolated_context,
             maxTurns: args.max_turns,
             enabled: args.enabled,
           });
@@ -73,6 +75,7 @@ export function createCronMcpServer(engine: CronEngine) {
           run_at: z.string().min(1).optional(),
           cron_expression: z.string().min(1).optional(),
           notify: z.enum(["auto", "never"]).optional(),
+          isolated_context: z.boolean().optional(),
           max_turns: z.union([z.number().int().positive(), z.null()]).optional(),
           enabled: z.boolean().optional(),
         },
@@ -86,6 +89,9 @@ export function createCronMcpServer(engine: CronEngine) {
           }
           if (args.notify !== undefined) {
             updates.notify = args.notify;
+          }
+          if (args.isolated_context !== undefined) {
+            updates.isolatedContext = args.isolated_context;
           }
           if (args.max_turns !== undefined) {
             updates.maxTurns = args.max_turns;
@@ -169,6 +175,7 @@ function toTaskSummary(task: CronTask) {
     name: task.name,
     enabled: task.enabled,
     notify: task.notify,
+    isolated_context: task.isolatedContext,
     maxTurns: task.maxTurns ?? 10,
     schedule:
       task.schedule.type === "interval"

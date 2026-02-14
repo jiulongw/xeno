@@ -11,6 +11,7 @@ export interface CronTask {
   prompt: string;
   schedule: CronSchedule;
   notify: CronNotifyMode;
+  isolatedContext: boolean;
   maxTurns?: number;
   enabled: boolean;
   createdAt: string;
@@ -23,6 +24,7 @@ export interface CronTaskCreateInput {
   prompt: string;
   schedule: CronSchedule;
   notify?: CronNotifyMode;
+  isolatedContext?: boolean;
   maxTurns?: number;
   enabled?: boolean;
 }
@@ -32,12 +34,14 @@ export interface CronTaskUpdateInput {
   prompt?: string;
   schedule?: CronSchedule;
   notify?: CronNotifyMode;
+  isolatedContext?: boolean;
   maxTurns?: number | null;
   enabled?: boolean;
 }
 
 export const CRON_DEFAULT_MODEL = "haiku";
 export const CRON_DEFAULT_NOTIFY_MODE: CronNotifyMode = "auto";
+export const CRON_DEFAULT_ISOLATED_CONTEXT = false;
 export const CRON_DEFAULT_MAX_TURNS = 10;
 
 export const HEARTBEAT_TASK_ID = "__heartbeat__";

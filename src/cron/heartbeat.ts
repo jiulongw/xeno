@@ -1,4 +1,5 @@
 import {
+  CRON_DEFAULT_ISOLATED_CONTEXT,
   CRON_DEFAULT_MAX_TURNS,
   CRON_DEFAULT_NOTIFY_MODE,
   HEARTBEAT_TASK_ID,
@@ -22,6 +23,7 @@ export function createHeartbeatTask(options?: {
       intervalMs: Math.max(1, intervalMinutes) * 60_000,
     },
     notify: CRON_DEFAULT_NOTIFY_MODE,
+    isolatedContext: CRON_DEFAULT_ISOLATED_CONTEXT,
     maxTurns: CRON_DEFAULT_MAX_TURNS,
     enabled: options?.enabled ?? true,
     createdAt: new Date().toISOString(),

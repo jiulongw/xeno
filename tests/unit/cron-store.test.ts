@@ -34,6 +34,7 @@ function makeTask(): CronTask {
       intervalMs: 60_000,
     },
     notify: "auto",
+    isolatedContext: false,
     maxTurns: 10,
     enabled: true,
     createdAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
@@ -128,6 +129,7 @@ describe("CronStore", () => {
         cronExpression: "0 0 9 * * 1-5",
       },
       notify: "auto",
+      isolatedContext: false,
       maxTurns: 10,
       enabled: true,
       createdAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
@@ -135,5 +137,51 @@ describe("CronStore", () => {
 
     await store.createTask(task);
     expect(await store.listTasks()).toEqual([task]);
+  });
+
+  test("defaults isolatedContext to false for legacy tasks without the field", async () => {
+    const home = await makeTempHome();
+    const storePath = join(home, "cron-tasks.json");
+    await mkdir(home, { recursive: true });
+    await writeFile(
+      storePath,
+      JSON.stringify({
+        version: 1,
+        tasks: [
+          {
+            id: "legacy-task",
+            name: "Legacy task",
+            prompt: "Do work",
+            schedule: {
+              type: "interval",
+              intervalMs: 60_000,
+            },
+            notify: "auto",
+            maxTurns: 10,
+            enabled: true,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const store = new CronStore(home);
+    expect(await store.listTasks()).toEqual([
+      {
+        id: "legacy-task",
+        name: "Legacy task",
+        prompt: "Do work",
+        schedule: {
+          type: "interval",
+          intervalMs: 60_000,
+        },
+        notify: "auto",
+        isolatedContext: false,
+        maxTurns: 10,
+        enabled: true,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]);
   });
 });

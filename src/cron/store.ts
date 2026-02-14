@@ -151,6 +151,10 @@ function parseCronTask(value: unknown): CronTask | null {
   const createdAt = asNonEmptyString(record.createdAt);
   const schedule = parseCronSchedule(record.schedule);
   const notify = parseNotifyMode(record.notify);
+  const isolatedContext =
+    parseOptionalBoolean(record.isolatedContext) ??
+    parseOptionalBoolean(record.isolated_context) ??
+    false;
   const enabled = record.enabled;
 
   if (
@@ -175,6 +179,7 @@ function parseCronTask(value: unknown): CronTask | null {
     prompt,
     schedule,
     notify,
+    isolatedContext,
     maxTurns,
     enabled,
     createdAt,
@@ -261,6 +266,13 @@ function asOptionalPositiveInteger(value: unknown): number | undefined {
     return undefined;
   }
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function parseOptionalBoolean(value: unknown): boolean | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {

@@ -45,6 +45,7 @@ describe("CronEngine", () => {
         runAt: new Date(Date.now() + 2_000).toISOString(),
       },
       notify: "auto",
+      isolatedContext: false,
       maxTurns: 10,
       enabled: true,
       createdAt: new Date().toISOString(),
@@ -70,6 +71,7 @@ describe("CronEngine", () => {
 
     expect(queryCalls.length).toBe(1);
     expect(queryCalls[0]?.model).toBe("haiku");
+    expect(queryCalls[0]?.isolatedContext).toBe(false);
     expect(events.length).toBe(1);
 
     const runtimeTask = engine.listTasks().find((task) => task.id === "once-task");
@@ -117,6 +119,7 @@ describe("CronEngine", () => {
         cronExpression: "* * * * * *",
       },
       notify: "auto",
+      isolatedContext: false,
       maxTurns: 10,
       enabled: true,
       createdAt: new Date().toISOString(),
@@ -159,13 +162,16 @@ describe("CronEngine", () => {
       },
     });
     expect(created.name).toBe("Recurring");
+    expect(created.isolatedContext).toBe(false);
 
     const updated = await engine.updateTask(created.id, {
       enabled: false,
       notify: "auto",
+      isolatedContext: true,
     });
     expect(updated?.enabled).toBe(false);
     expect(updated?.notify).toBe("auto");
+    expect(updated?.isolatedContext).toBe(true);
 
     const removed = await engine.deleteTask(created.id);
     expect(removed).toBe(true);

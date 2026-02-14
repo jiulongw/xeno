@@ -1,4 +1,5 @@
 import {
+  CRON_DEFAULT_ISOLATED_CONTEXT,
   CRON_DEFAULT_MAX_TURNS,
   CRON_DEFAULT_NOTIFY_MODE,
   WEEKLY_NEW_SESSION_TASK_ID,
@@ -17,6 +18,7 @@ export function createWeeklyNewSessionTask(): CronTask {
       cronExpression: WEEKLY_NEW_SESSION_CRON_EXPRESSION,
     },
     notify: CRON_DEFAULT_NOTIFY_MODE,
+    isolatedContext: CRON_DEFAULT_ISOLATED_CONTEXT,
     maxTurns: CRON_DEFAULT_MAX_TURNS,
     enabled: true,
     createdAt: new Date().toISOString(),
