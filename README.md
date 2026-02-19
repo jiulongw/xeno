@@ -57,6 +57,8 @@ xeno install
 
 This registers xeno as a macOS LaunchAgent (`cc.novacore.xeno.gateway`) so that it starts automatically when you log in. An active login session is required — xeno will not start after a reboot until you log in for the first time, since it runs as a LaunchAgent rather than a LaunchDaemon.
 
+For reliable background execution, enable macOS power setting `Prevent automatic sleeping when the display is off` on the Mac running xeno. If the machine sleeps, responses can be delayed until the next wake cycle or heartbeat run.
+
 Run `xeno install` again whenever you change the configuration file to pick up the new settings.
 
 ### 5. Upgrading
