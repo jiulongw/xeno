@@ -54,6 +54,9 @@ export class TelegramPlatform implements ChatService {
   private lastEditAt = 0;
   private readonly minEditIntervalMs = 1_000;
   private readonly typingRefreshIntervalMs = 4_000;
+  private static readonly MEMBER_COUNT_TTL_MS = 5 * 60 * 1_000;
+  private readonly memberCountCache = new Map<number, { count: number; fetchedAt: number }>();
+
   private static readonly BOT_COMMANDS = [
     {
       command: "compact",
@@ -495,6 +498,14 @@ export class TelegramPlatform implements ChatService {
       }
     }
 
+    // Auto-respond in 2-member group chats without requiring @mention
+    if (isGroupChat && !mentioned && this.activeChatId !== null) {
+      const memberCount = await this.getCachedMemberCount(this.activeChatId);
+      if (memberCount === 2) {
+        mentioned = true;
+      }
+    }
+
     // In group chats, only check auth when the bot is @mentioned
     if (isGroupChat && mentioned && !this.isUserAllowedForChat(ctx)) {
       await this.replyUnauthorized(ctx);
@@ -744,6 +755,24 @@ export class TelegramPlatform implements ChatService {
       this.typingTimer = null;
     }
     this.typingChatId = null;
+  }
+
+  private async getCachedMemberCount(chatId: number): Promise<number | null> {
+    const cached = this.memberCountCache.get(chatId);
+    const now = Date.now();
+
+    if (cached && now - cached.fetchedAt < TelegramPlatform.MEMBER_COUNT_TTL_MS) {
+      return cached.count;
+    }
+
+    try {
+      const count = await this.bot!.api.getChatMemberCount(chatId);
+      this.memberCountCache.set(chatId, { count, fetchedAt: now });
+      return count;
+    } catch (error) {
+      this.platformLogger.warn({ error, chatId }, "Failed to get chat member count");
+      return cached?.count ?? null;
+    }
   }
 
   private clearActiveReplyState(): void {
