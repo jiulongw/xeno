@@ -56,20 +56,47 @@ describe("config", () => {
     });
   });
 
-  test("loads telegram_allowed_users as normalized strings", async () => {
+  test("loads telegram_allowed_users legacy array as wildcard map", async () => {
     const dir = await makeTempDir();
     const configPath = join(dir, "config.json");
     await writeFile(
       configPath,
       JSON.stringify({
-        telegram_allowed_users: [123456789, " 42 ", "42", "alice"],
+        telegram_allowed_users: [123456789, " 42 ", "alice"],
       }),
       "utf-8",
     );
 
     const config = await loadConfigFromPath(configPath);
     expect(config).toEqual({
-      telegramAllowedUsers: ["123456789", "42", "alice"],
+      telegramAllowedUsers: {
+        "123456789": ["*"],
+        "42": ["*"],
+        alice: ["*"],
+      },
+    });
+  });
+
+  test("loads telegram_allowed_users object format", async () => {
+    const dir = await makeTempDir();
+    const configPath = join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        telegram_allowed_users: {
+          "123": ["*"],
+          "456": ["-1001234567890"],
+        },
+      }),
+      "utf-8",
+    );
+
+    const config = await loadConfigFromPath(configPath);
+    expect(config).toEqual({
+      telegramAllowedUsers: {
+        "123": ["*"],
+        "456": ["-1001234567890"],
+      },
     });
   });
 
@@ -116,14 +143,12 @@ describe("config", () => {
     await expect(loadConfigFromPath(configPath)).rejects.toThrow('Expected "heartbeat_enabled" in');
   });
 
-  test("throws when telegram_allowed_users is not an array", async () => {
+  test("throws when telegram_allowed_users is not an array or object", async () => {
     const dir = await makeTempDir();
     const configPath = join(dir, "config.json");
     await writeFile(configPath, JSON.stringify({ telegram_allowed_users: "123" }), "utf-8");
 
-    await expect(loadConfigFromPath(configPath)).rejects.toThrow(
-      'Expected "telegram_allowed_users" in',
-    );
+    await expect(loadConfigFromPath(configPath)).rejects.toThrow("array or object");
   });
 
   test("throws when telegram_allowed_users contains unsupported values", async () => {

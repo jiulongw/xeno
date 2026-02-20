@@ -18,7 +18,7 @@ import type {
 export interface TelegramPlatformOptions {
   home: string;
   token: string;
-  allowedUserIds?: string[];
+  allowedUsers?: Record<string, string[]>;
 }
 
 export class TelegramPlatform implements ChatService {
@@ -33,7 +33,7 @@ export class TelegramPlatform implements ChatService {
 
   private readonly home: string;
   private readonly token: string;
-  private readonly allowedUserIds: ReadonlySet<string> | null;
+  private readonly allowedUsers: ReadonlyMap<string, ReadonlySet<string>> | null;
   private readonly platformLogger;
 
   private bot: Bot | null = null;
@@ -68,11 +68,14 @@ export class TelegramPlatform implements ChatService {
   constructor(options: TelegramPlatformOptions) {
     this.home = options.home;
     this.token = options.token;
-    this.allowedUserIds =
-      options.allowedUserIds === undefined
+    this.allowedUsers =
+      options.allowedUsers === undefined
         ? null
-        : new Set(
-            options.allowedUserIds.map((value) => value.trim()).filter((value) => value.length > 0),
+        : new Map(
+            Object.entries(options.allowedUsers).map(([userId, channels]) => [
+              userId.trim(),
+              new Set(channels.map((c) => c.trim()).filter((c) => c.length > 0)),
+            ]),
           );
     this.platformLogger = logger.child({ service: "telegram", home: this.home });
   }
@@ -105,9 +108,15 @@ export class TelegramPlatform implements ChatService {
 
     bot.use(async (ctx, next) => {
       this.logInboundMessage(ctx);
-      if (ctx.message && !this.isUserAllowed(ctx)) {
-        await this.replyUnauthorized(ctx);
-        return;
+      if (ctx.message) {
+        const chatType = ctx.chat?.type;
+        const isGroupChat = chatType === "group" || chatType === "supergroup";
+        // Private chats: reject immediately if not authorized
+        // Group chats: pass through; auth checked later on @mention
+        if (!isGroupChat && !this.isUserAllowedForChat(ctx)) {
+          await this.replyUnauthorized(ctx);
+          return;
+        }
       }
       await next();
     });
@@ -486,6 +495,12 @@ export class TelegramPlatform implements ChatService {
       }
     }
 
+    // In group chats, only check auth when the bot is @mentioned
+    if (isGroupChat && mentioned && !this.isUserAllowedForChat(ctx)) {
+      await this.replyUnauthorized(ctx);
+      return;
+    }
+
     const content = trimmedText || "User sent one or more attachments.";
 
     const inbound: ChatInboundMessage = {
@@ -764,8 +779,8 @@ export class TelegramPlatform implements ChatService {
     }
   }
 
-  private isUserAllowed(ctx: Context): boolean {
-    if (!this.allowedUserIds) {
+  private isUserAllowedForChat(ctx: Context): boolean {
+    if (!this.allowedUsers) {
       return false;
     }
 
@@ -774,7 +789,22 @@ export class TelegramPlatform implements ChatService {
       return false;
     }
 
-    return this.allowedUserIds.has(userId);
+    const channels = this.allowedUsers.get(userId);
+    if (!channels) {
+      return false;
+    }
+
+    if (channels.has("*")) {
+      return true;
+    }
+
+    const chatType = ctx.chat?.type;
+    if (chatType === "private") {
+      return false;
+    }
+
+    const chatId = ctx.chat ? String(ctx.chat.id) : "";
+    return chatId !== "" && channels.has(chatId);
   }
 
   private async replyUnauthorized(ctx: Context): Promise<void> {

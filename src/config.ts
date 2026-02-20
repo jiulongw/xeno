@@ -3,10 +3,12 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
+export type TelegramAllowedUsers = Record<string, string[]>;
+
 export interface AppConfig {
   defaultHome?: string;
   telegramBotToken?: string;
-  telegramAllowedUsers?: string[];
+  telegramAllowedUsers?: TelegramAllowedUsers;
   heartbeatIntervalMinutes?: number;
   heartbeatEnabled?: boolean;
 }
@@ -43,7 +45,7 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
   const record = parsed as Record<string, unknown>;
   const defaultHome = readOptionalString(record, "default_home", configPath);
   const telegramBotToken = readOptionalString(record, "telegram_bot_token", configPath);
-  const telegramAllowedUsers = readOptionalTelegramUserIdList(
+  const telegramAllowedUsers = readTelegramAllowedUsers(
     record,
     "telegram_allowed_users",
     configPath,
@@ -144,40 +146,87 @@ function readOptionalBoolean(
   return value;
 }
 
-function readOptionalTelegramUserIdList(
+function readTelegramAllowedUsers(
   source: Record<string, unknown>,
   key: string,
   configPath: string,
-): string[] | undefined {
+): TelegramAllowedUsers | undefined {
   const value = source[key];
   if (value === undefined || value === null) {
     return undefined;
   }
 
-  if (!Array.isArray(value)) {
-    throw new Error(`Expected "${key}" in ${configPath} to be an array.`);
+  // Legacy array format: ["123", "456"] → { "123": ["*"], "456": ["*"] }
+  if (Array.isArray(value)) {
+    const result: TelegramAllowedUsers = {};
+    for (const entry of value) {
+      const userId = normalizeUserId(entry, key, configPath);
+      result[userId] = ["*"];
+    }
+    return result;
   }
 
-  const normalized: string[] = [];
-  for (const entry of value) {
-    if (typeof entry === "string") {
-      const trimmed = entry.trim();
-      if (!trimmed) {
-        throw new Error(`Expected all entries in "${key}" in ${configPath} to be non-empty.`);
+  // New object format: { "123": ["*"], "456": ["-1001234567890"] }
+  if (typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const result: TelegramAllowedUsers = {};
+    for (const [userId, channels] of Object.entries(record)) {
+      const trimmedId = userId.trim();
+      if (!trimmedId) {
+        throw new Error(`Expected all keys in "${key}" in ${configPath} to be non-empty user IDs.`);
       }
-      normalized.push(trimmed);
-      continue;
-    }
 
-    if (typeof entry === "number" && Number.isFinite(entry) && Number.isInteger(entry)) {
-      normalized.push(String(entry));
-      continue;
-    }
+      if (!Array.isArray(channels)) {
+        throw new Error(
+          `Expected "${key}.${userId}" in ${configPath} to be an array of channel IDs.`,
+        );
+      }
 
-    throw new Error(`Expected all entries in "${key}" in ${configPath} to be strings or integers.`);
+      const normalizedChannels: string[] = [];
+      for (const channel of channels) {
+        if (typeof channel === "string") {
+          const trimmed = channel.trim();
+          if (!trimmed) {
+            throw new Error(
+              `Expected all entries in "${key}.${userId}" in ${configPath} to be non-empty.`,
+            );
+          }
+          normalizedChannels.push(trimmed);
+        } else if (
+          typeof channel === "number" &&
+          Number.isFinite(channel) &&
+          Number.isInteger(channel)
+        ) {
+          normalizedChannels.push(String(channel));
+        } else {
+          throw new Error(
+            `Expected all entries in "${key}.${userId}" in ${configPath} to be strings or integers.`,
+          );
+        }
+      }
+
+      result[trimmedId] = normalizedChannels;
+    }
+    return result;
   }
 
-  return Array.from(new Set(normalized));
+  throw new Error(`Expected "${key}" in ${configPath} to be an array or object.`);
+}
+
+function normalizeUserId(entry: unknown, key: string, configPath: string): string {
+  if (typeof entry === "string") {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      throw new Error(`Expected all entries in "${key}" in ${configPath} to be non-empty.`);
+    }
+    return trimmed;
+  }
+
+  if (typeof entry === "number" && Number.isFinite(entry) && Number.isInteger(entry)) {
+    return String(entry);
+  }
+
+  throw new Error(`Expected all entries in "${key}" in ${configPath} to be strings or integers.`);
 }
 
 function expandHomeShortcut(pathValue: string, baseHome: string = homedir()): string {

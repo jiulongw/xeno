@@ -39,7 +39,7 @@ function buildServeServices(home: string, config: AppConfig): ChatService[] {
       new TelegramPlatform({
         home,
         token: telegramToken,
-        allowedUserIds: config.telegramAllowedUsers,
+        allowedUsers: config.telegramAllowedUsers,
       }),
     );
   } else {
