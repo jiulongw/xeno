@@ -120,6 +120,7 @@ System tasks (heartbeat, weekly-new-session) remain main-session-only.
 
 - Non-mentioned messages in group chats are queued to a per-channel message queue
 - When the bot is @mentioned, queued messages are flushed as context and included in the prompt
+- In 2-member group chats, the bot auto-responds without requiring an @mention
 - Replies are routed back to the originating chat
 
 ## Development
