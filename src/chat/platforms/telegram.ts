@@ -839,7 +839,7 @@ export class TelegramPlatform implements ChatService {
   private async replyUnauthorized(ctx: Context): Promise<void> {
     const userId = ctx.from ? String(ctx.from.id) : "unknown";
     const channelId = ctx.chat ? String(ctx.chat.id) : undefined;
-    const message = `Your user id is ${userId}. This bot is now allowed to respond your request.`;
+    const message = `Your user id is ${userId}. This bot is not allowed to respond your request.`;
 
     this.platformLogger.warn(
       {
