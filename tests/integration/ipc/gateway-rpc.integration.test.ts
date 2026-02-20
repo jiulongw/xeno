@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Gateway } from "../../../src/gateway";
 import { GatewayRpcClient, GatewayRpcServer } from "../../../src/ipc/gateway-rpc";
 import { EchoMockAgent } from "../../helpers/echo-mock-agent";
+import { createTestChannelRegistry } from "../../helpers/test-channel-registry";
 
 type NotificationRecord = {
   method: string;
@@ -53,7 +54,7 @@ describe("Gateway RPC integration", () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const server = new GatewayRpcServer({
@@ -95,9 +96,10 @@ describe("Gateway RPC integration", () => {
   });
 
   test("GatewayRpcServer parseQueryParams validates malformed payloads", () => {
+    const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent: new EchoMockAgent(),
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const server = new GatewayRpcServer({

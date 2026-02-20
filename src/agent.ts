@@ -11,7 +11,7 @@ import type {
   HookCallbackMatcher,
 } from "@anthropic-ai/claude-agent-sdk";
 import pino from "pino";
-import type { PlatformContext, PlatformType } from "./chat/service";
+import type { PlatformContext } from "./chat/service";
 import { logger } from "./logger";
 import { HEARTBEAT_TASK_ID, WEEKLY_NEW_SESSION_TASK_ID } from "./cron/types";
 import type { Attachment } from "./media";
@@ -35,15 +35,8 @@ export interface ConversationTurn {
   content: string;
 }
 
-export interface LastChannel {
-  platform: PlatformType;
-  channelId: string;
-}
-
 export interface AgentRuntime {
   getSessionId(): string | null;
-  getLastChannel(): LastChannel | null;
-  updateLastChannel(context: PlatformContext): void;
   getConversationHistory(): Promise<ConversationTurn[]>;
   query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage>;
   abort(): void;
@@ -86,33 +79,32 @@ class DeveloperSectionBuilder {
   }
 }
 
+export interface AgentOptions {
+  defaultModel?: string;
+  parentHome?: string;
+}
+
 export class Agent implements AgentRuntime {
   readonly dir: string;
   readonly logger: pino.Logger;
   readonly pathToClaudeCodeExecutable: string | undefined;
 
+  private readonly defaultModel: string | undefined;
+  private readonly parentHome: string | undefined;
   private abortController: AbortController | null = null;
   private sessionId: string | null;
-  private lastChannel: LastChannel | null;
 
-  constructor(dir: string) {
+  constructor(dir: string, options?: AgentOptions) {
     this.dir = dir;
+    this.defaultModel = options?.defaultModel;
+    this.parentHome = options?.parentHome ? resolve(options.parentHome) : undefined;
     this.logger = logger.child({ home: dir });
     this.pathToClaudeCodeExecutable = process.env.PATH_TO_CLAUDE_CODE_EXECUTABLE;
-    const state = this.loadSessionState();
-    this.sessionId = state.sessionId;
-    this.lastChannel = state.lastChannel;
+    this.sessionId = this.loadSessionId();
   }
 
   getSessionId(): string | null {
     return this.sessionId;
-  }
-
-  getLastChannel(): LastChannel | null {
-    if (!this.lastChannel) {
-      return null;
-    }
-    return { ...this.lastChannel };
   }
 
   clearMainSessionId(): void {
@@ -132,44 +124,6 @@ export class Agent implements AgentRuntime {
       this.logger.info("Cleared main_session_id from session state");
     } catch (error) {
       this.logger.error({ error }, "Failed to clear main_session_id");
-    }
-  }
-
-  updateLastChannel(context: PlatformContext): void {
-    const channelId = context.channelId?.trim();
-    if (context.type === "rpc" || !channelId) {
-      // proactive message is not supported in rpc request contexts.
-      return;
-    }
-
-    const next: LastChannel = {
-      platform: context.type,
-      channelId,
-    };
-
-    if (this.isSameLastChannel(this.lastChannel, next)) {
-      return;
-    }
-
-    const existingSession = this.readSessionData() ?? {};
-    const existingLastChannel = this.parseLastChannel(existingSession.last_channel);
-    if (this.isSameLastChannel(existingLastChannel, next)) {
-      this.lastChannel = existingLastChannel;
-      return;
-    }
-
-    try {
-      this.writeSessionData({
-        ...existingSession,
-        last_channel: {
-          platform: next.platform,
-          channel_id: next.channelId,
-        },
-      });
-      this.lastChannel = next;
-      this.logger.debug({ lastChannel: next }, "Saved last channel");
-    } catch (error) {
-      this.logger.error({ error }, "Failed to save last channel");
     }
   }
 
@@ -234,6 +188,12 @@ export class Agent implements AgentRuntime {
       ],
     };
 
+    const preToolUseHooks: HookCallbackMatcher[] = [];
+    const pathRestrictionHook = this.createPathRestrictionHook();
+    if (pathRestrictionHook) {
+      preToolUseHooks.push(pathRestrictionHook);
+    }
+
     const queryOptions: Options = {
       abortController: this.abortController,
       cwd: this.dir,
@@ -243,6 +203,7 @@ export class Agent implements AgentRuntime {
       tools: { type: "preset", preset: "claude_code" },
       hooks: {
         PreCompact: [preCompactHook],
+        ...(preToolUseHooks.length > 0 ? { PreToolUse: preToolUseHooks } : {}),
       },
       includePartialMessages,
       mcpServers,
@@ -252,8 +213,10 @@ export class Agent implements AgentRuntime {
       queryOptions.pathToClaudeCodeExecutable = this.pathToClaudeCodeExecutable;
     }
 
-    if (cronContext && cronContext.model) {
+    if (cronContext?.model) {
       queryOptions.model = cronContext.model;
+    } else if (this.defaultModel) {
+      queryOptions.model = this.defaultModel;
     }
 
     let sessionType: SessionType = "resume";
@@ -314,6 +277,88 @@ export class Agent implements AgentRuntime {
       this.abortController.abort();
       this.logger.info("Query aborted");
     }
+  }
+
+  private createPathRestrictionHook(): HookCallbackMatcher | null {
+    if (!this.parentHome) {
+      return null;
+    }
+
+    const parentHome = this.parentHome;
+    const ownDir = resolve(this.dir);
+    const channelsDir = join(parentHome, "channels") + "/";
+
+    const restrictedExact = [
+      join(parentHome, "MEMORY.md"),
+      join(parentHome, "USER.md"),
+      join(parentHome, "HEARTBEAT.md"),
+    ];
+    const restrictedPrefix = join(parentHome, "memory") + "/";
+
+    const isRestricted = (absPath: string): string | null => {
+      for (const restricted of restrictedExact) {
+        if (absPath === restricted) {
+          return `Access to ${basename(absPath)} in parent home is restricted`;
+        }
+      }
+
+      if (absPath.startsWith(restrictedPrefix) || absPath === restrictedPrefix.slice(0, -1)) {
+        return "Access to parent home memory directory is restricted";
+      }
+
+      // Block sibling channels but allow own channel
+      if (absPath.startsWith(channelsDir)) {
+        if (absPath !== ownDir && !absPath.startsWith(ownDir + "/")) {
+          return "Access to sibling channel directories is restricted";
+        }
+      }
+
+      return null;
+    };
+
+    return {
+      hooks: [
+        async (params) => {
+          if (!("tool_name" in params)) {
+            return {};
+          }
+
+          const { tool_name, tool_input } = params as {
+            tool_name: string;
+            tool_input: unknown;
+          };
+          const input = tool_input as Record<string, unknown>;
+
+          let rawPath: string | undefined;
+          switch (tool_name) {
+            case "Read":
+            case "Edit":
+            case "Write":
+              rawPath = typeof input.file_path === "string" ? input.file_path : undefined;
+              break;
+            case "Glob":
+            case "Grep":
+              rawPath = typeof input.path === "string" ? input.path : undefined;
+              break;
+            default:
+              return {};
+          }
+
+          if (!rawPath) {
+            return {};
+          }
+
+          const absPath = resolve(ownDir, rawPath);
+          const reason = isRestricted(absPath);
+          if (reason) {
+            this.logger.warn({ tool: tool_name, path: rawPath }, reason);
+            return { decision: "block" as const, reason };
+          }
+
+          return {};
+        },
+      ],
+    };
   }
 
   private augmentPrompt(
@@ -412,25 +457,21 @@ export class Agent implements AgentRuntime {
     return join(this.dir, ".xeno", "session.json");
   }
 
-  private loadSessionState(): { sessionId: string | null; lastChannel: LastChannel | null } {
+  private loadSessionId(): string | null {
     const data = this.readSessionData();
     if (!data) {
-      return { sessionId: null, lastChannel: null };
+      return null;
     }
 
     const sessionId =
       typeof data.main_session_id === "string" && data.main_session_id.length > 0
         ? data.main_session_id
         : null;
-    const lastChannel = this.parseLastChannel(data.last_channel);
     if (sessionId) {
       this.logger.debug("Loaded session: %s", sessionId);
     }
-    if (lastChannel) {
-      this.logger.debug({ lastChannel }, "Loaded last channel");
-    }
 
-    return { sessionId, lastChannel };
+    return sessionId;
   }
 
   private persistSessionId(id: string) {
@@ -475,32 +516,6 @@ export class Agent implements AgentRuntime {
   private writeSessionData(data: Record<string, unknown>): void {
     mkdirSync(dirname(this.sessionFilePath), { recursive: true });
     writeFileSync(this.sessionFilePath, JSON.stringify(data, null, 2));
-  }
-
-  private parseLastChannel(value: unknown): LastChannel | null {
-    const record = this.getRecord(value);
-    if (!record) {
-      return null;
-    }
-
-    const platform = record.platform;
-    const channelId = typeof record.channel_id === "string" ? record.channel_id.trim() : "";
-    if (!this.isPlatformType(platform) || channelId.length === 0) {
-      return null;
-    }
-
-    return {
-      platform,
-      channelId,
-    };
-  }
-
-  private isPlatformType(value: unknown): value is PlatformType {
-    return value === "telegram" || value === "discord" || value === "slack" || value === "rpc";
-  }
-
-  private isSameLastChannel(left: LastChannel | null, right: LastChannel): boolean {
-    return left?.platform === right.platform && left?.channelId === right.channelId;
   }
 
   private getSessionJsonlPath(sessionId: string): string {

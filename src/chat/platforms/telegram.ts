@@ -37,6 +37,7 @@ export class TelegramPlatform implements ChatService {
   private readonly platformLogger;
 
   private bot: Bot | null = null;
+  private botUsername: string | null = null;
   private running = false;
 
   private onUserMessageHandler: UserMessageHandler = () => undefined;
@@ -94,6 +95,14 @@ export class TelegramPlatform implements ChatService {
     const bot = new Bot(this.token);
     this.bot = bot;
 
+    try {
+      const me = await bot.api.getMe();
+      this.botUsername = me.username ?? null;
+      this.platformLogger.info({ botUsername: this.botUsername }, "Detected bot username");
+    } catch (error) {
+      this.platformLogger.warn({ error }, "Failed to detect bot username via getMe()");
+    }
+
     bot.use(async (ctx, next) => {
       this.logInboundMessage(ctx);
       if (ctx.message && !this.isUserAllowed(ctx)) {
@@ -143,7 +152,7 @@ export class TelegramPlatform implements ChatService {
       );
 
       this.enqueueInbound(async () => {
-        await this.handleIncomingText(ctx, "/compact");
+        await this.handleIncomingText(ctx, ctx.message?.text ?? "/compact");
       });
     });
 
@@ -158,9 +167,11 @@ export class TelegramPlatform implements ChatService {
         "Telegram /stop received",
       );
 
-      this.onAbortRequestHandler();
+      this.onAbortRequestHandler({
+        channelId: ctx.chat ? String(ctx.chat.id) : undefined,
+      });
       this.enqueueInbound(async () => {
-        await this.handleIncomingText(ctx, "/stop");
+        await this.handleIncomingText(ctx, ctx.message?.text ?? "/stop");
       });
     });
 
@@ -325,11 +336,15 @@ export class TelegramPlatform implements ChatService {
     }
   }
 
-  async startTyping(): Promise<void> {
-    if (this.activeChatId === null) {
+  async startTyping(options?: { target?: { platform: string; channelId: string } }): Promise<void> {
+    let chatId = this.activeChatId;
+    if (options?.target?.platform === this.type) {
+      chatId = this.parseChatId(options.target.channelId);
+    }
+    if (chatId === null) {
       return;
     }
-    await this.startTypingIndicator(this.activeChatId);
+    await this.startTypingIndicator(chatId);
   }
 
   async stopTyping(): Promise<void> {
@@ -352,9 +367,14 @@ export class TelegramPlatform implements ChatService {
     const attachments = options?.attachments;
     const normalized = sendText ? (content.trim().length > 0 ? content : "[No response]") : "";
 
+    // Resolve target chat ID: use explicit target if present, fall back to activeChatId
+    const target = options?.target;
+    if (target && target.platform !== this.type) {
+      return;
+    }
+
     if (options?.reason === "proactive") {
-      const target = options.target;
-      if (!target || target.platform !== this.type) {
+      if (!target) {
         return;
       }
 
@@ -373,7 +393,21 @@ export class TelegramPlatform implements ChatService {
       return;
     }
 
-    if (this.activeChatId === null) {
+    // For response messages, prefer target channelId, fall back to activeChatId
+    const responseChatId = target ? this.parseChatId(target.channelId) : this.activeChatId;
+
+    if (responseChatId === null) {
+      return;
+    }
+
+    // If responding to a different chat than the active one, send as new message
+    if (responseChatId !== this.activeChatId) {
+      if (!isPartial) {
+        if (sendText) {
+          await this.sendTelegramMessage(responseChatId, normalized);
+        }
+        await this.sendAttachments(responseChatId, attachments);
+      }
       return;
     }
 
@@ -438,7 +472,20 @@ export class TelegramPlatform implements ChatService {
     this.clearPendingTimer();
     this.lastEditAt = 0;
 
-    const trimmedText = text.trim();
+    const chatType = ctx.chat?.type;
+    const isGroupChat = chatType === "group" || chatType === "supergroup";
+    let trimmedText = text.trim();
+
+    // Detect and strip @mention in group chats
+    let mentioned = false;
+    if (isGroupChat && this.botUsername && trimmedText) {
+      const mentionPattern = new RegExp(`@${this.botUsername}`, "gi");
+      if (mentionPattern.test(trimmedText)) {
+        mentioned = true;
+        trimmedText = trimmedText.replace(mentionPattern, "").trim();
+      }
+    }
+
     const content = trimmedText || "User sent one or more attachments.";
 
     const inbound: ChatInboundMessage = {
@@ -451,7 +498,9 @@ export class TelegramPlatform implements ChatService {
           username: ctx.from?.username,
           firstName: ctx.from?.first_name,
           lastName: ctx.from?.last_name,
-          chatType: ctx.chat?.type,
+          chatType,
+          chatTitle: ctx.chat?.title,
+          mentioned,
         },
       },
       attachments,

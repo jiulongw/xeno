@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type {
@@ -11,6 +14,7 @@ import type {
 } from "../../src/chat/service";
 import { Gateway } from "../../src/gateway";
 import { EchoMockAgent } from "../helpers/echo-mock-agent";
+import { createTestChannelRegistry } from "../helpers/test-channel-registry";
 
 type MessageRecord = {
   content: string;
@@ -78,7 +82,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService();
@@ -98,7 +102,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 25 });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService("telegram");
@@ -127,7 +131,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService("telegram");
@@ -144,7 +148,11 @@ describe("Gateway", () => {
     expect(agent.calls[0]?.prompt).toBe("/compact");
     expect(agent.calls[0]?.options?.platformContext).toBeUndefined();
     expect(service.messages).toEqual([
-      { content: "/compact", isPartial: false, options: { reason: "response" } },
+      {
+        content: "/compact",
+        isPartial: false,
+        options: { reason: "response", target: { platform: "telegram", channelId: "1001" } },
+      },
     ]);
   });
 
@@ -152,7 +160,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent({ emitStreamText: false });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService("telegram");
@@ -166,7 +174,11 @@ describe("Gateway", () => {
     );
 
     expect(service.messages).toEqual([
-      { content: "compact done", isPartial: false, options: { reason: "response" } },
+      {
+        content: "compact done",
+        isPartial: false,
+        options: { reason: "response", target: { platform: "telegram", channelId: "1001" } },
+      },
     ]);
   });
 
@@ -174,7 +186,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService("telegram");
@@ -194,7 +206,7 @@ describe("Gateway", () => {
       {
         content: TELEGRAM_STOP_FOLLOW_UP_PROMPT,
         isPartial: false,
-        options: { reason: "response" },
+        options: { reason: "response", target: { platform: "telegram", channelId: "1001" } },
       },
     ]);
   });
@@ -203,7 +215,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService("rpc");
@@ -224,7 +236,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 80 });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
 
@@ -250,7 +262,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 500 });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
 
@@ -287,7 +299,7 @@ describe("Gateway", () => {
       {
         content: TELEGRAM_STOP_FOLLOW_UP_PROMPT,
         isPartial: false,
-        options: { reason: "response" },
+        options: { reason: "response", target: { platform: "telegram", channelId: "1001" } },
       },
     ]);
   });
@@ -296,7 +308,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 500 });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
 
@@ -352,7 +364,7 @@ describe("Gateway", () => {
         content:
           "Busy with another task right now. I queued your message and will reply when it finishes.",
         isPartial: false,
-        options: { reason: "response" },
+        options: { reason: "response", target: { platform: "telegram", channelId: "1001" } },
       },
     ]);
     expect(queuedServiceTwo.messages).toEqual([
@@ -360,16 +372,85 @@ describe("Gateway", () => {
         content:
           "Busy with another task right now. I queued your message and will reply when it finishes.",
         isPartial: false,
-        options: { reason: "response" },
+        options: { reason: "response", target: { platform: "telegram", channelId: "1001" } },
       },
     ]);
+  });
+
+  test("abortActiveQuery targets the correct topic session via channel context", async () => {
+    const mainAgent = new EchoMockAgent({ chunkDelayMs: 500 });
+    const topicAgent = new EchoMockAgent({ chunkDelayMs: 500 });
+    const mainSession = new (await import("../../src/channel/session")).ChannelSession(
+      "__main__",
+      mainAgent,
+    );
+    const topicSession = new (await import("../../src/channel/session")).ChannelSession(
+      "telegram:2002",
+      topicAgent,
+    );
+    const { ChannelRegistry } = await import("../../src/channel/registry");
+    const home = mkdtempSync(join(tmpdir(), "xeno-gw-"));
+    try {
+      const { mkdirSync, writeFileSync } = await import("node:fs");
+      mkdirSync(join(home, ".xeno"), { recursive: true });
+      writeFileSync(
+        join(home, ".xeno", "channels.json"),
+        JSON.stringify({ main_channel_id: "telegram:1001" }),
+      );
+      const registry = new ChannelRegistry({
+        home,
+        mainSession,
+        createTopicSession: async () => topicSession,
+      });
+      // Pre-resolve the topic session so it's registered
+      await registry.resolve("telegram", "2002", "group", "test-group");
+
+      const gateway = new Gateway({
+        home,
+        channelRegistry: registry,
+        services: [],
+      });
+
+      const topicService = makeQueryService("telegram");
+      const topicPromise = gateway.submitMessage(
+        topicService,
+        inbound("long task", {
+          type: "telegram",
+          channelId: "2002",
+          metadata: { chatType: "group", mentioned: true },
+        }),
+      );
+      await sleep(25);
+
+      // Abort targeting the topic channel
+      gateway.requestAbort();
+      // requestAbort targets main session — verify main agent was NOT aborted
+      // since it has no active query
+      expect(mainAgent.abortCount).toBe(0);
+
+      // Now test the routed /stop path which should target the topic session
+      const stopService = makeQueryService("telegram");
+      await gateway.submitMessage(
+        stopService,
+        inbound("/stop", {
+          type: "telegram",
+          channelId: "2002",
+          metadata: { chatType: "group", mentioned: true },
+        }),
+      );
+      await topicPromise;
+
+      expect(topicAgent.abortCount).toBeGreaterThanOrEqual(1);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("propagates abort request to active query", async () => {
     const agent = new EchoMockAgent({ chunkDelayMs: 500 });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService();
@@ -387,7 +468,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent({ failWith: "boom" });
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService();
@@ -439,7 +520,7 @@ describe("Gateway", () => {
 
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [service],
     });
 
@@ -449,29 +530,6 @@ describe("Gateway", () => {
     expect(delivered).toEqual([
       { content: "hello", isPartial: false, options: { reason: "response" } },
     ]);
-  });
-
-  test("updates last channel when inbound context contains channel id", async () => {
-    const agent = new EchoMockAgent();
-    const gateway = new Gateway({
-      home: "/tmp/test-home",
-      agent,
-      services: [],
-    });
-    const service = makeQueryService("telegram");
-
-    await gateway.submitMessage(
-      service,
-      inbound("hello", {
-        type: "telegram",
-        channelId: "1001",
-      }),
-    );
-
-    expect(agent.getLastChannel()).toEqual({
-      platform: "telegram",
-      channelId: "1001",
-    });
   });
 
   test("passes configured MCP servers to rpc queries", async () => {
@@ -486,7 +544,7 @@ describe("Gateway", () => {
 
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
       mcpServers,
     });
@@ -503,7 +561,7 @@ describe("Gateway", () => {
     const agent = new EchoMockAgent();
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
     });
     const service = makeQueryService("telegram");
@@ -533,7 +591,7 @@ describe("Gateway", () => {
 
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
       rpcMcpServers: rpcOnlyMcpServers,
     });
@@ -575,7 +633,7 @@ describe("Gateway", () => {
 
     const gateway = new Gateway({
       home: "/tmp/test-home",
-      agent,
+      channelRegistry: createTestChannelRegistry(agent),
       services: [],
       mcpServers: baseMcpServers,
     });
@@ -600,143 +658,156 @@ describe("Gateway", () => {
   });
 
   test("broadcasts messages to all services with target metadata", async () => {
-    const agent = new EchoMockAgent();
-    agent.updateLastChannel({
-      type: "telegram",
-      channelId: "1001",
-    });
+    const home = mkdtempSync(join(tmpdir(), "xeno-gw-"));
+    try {
+      const agent = new EchoMockAgent();
 
-    const deliveries: Array<{
-      service: PlatformType;
-      content: string;
-      isPartial: boolean;
-      options?: OutboundMessageOptions;
-    }> = [];
+      const deliveries: Array<{
+        service: PlatformType;
+        content: string;
+        isPartial: boolean;
+        options?: OutboundMessageOptions;
+      }> = [];
 
-    const createService = (type: PlatformType): ChatService => ({
-      type,
-      capabilities: {
-        supportsStreaming: true,
-        supportsMarkdownTables: type === "rpc",
-      },
-      start: async () => undefined,
-      stop: async () => undefined,
-      onUserMessage: () => undefined,
-      sendMessage: async (content, isPartial, options) => {
-        deliveries.push({ service: type, content, isPartial, options });
-      },
-      sendStats: async () => undefined,
-    });
+      const createService = (type: PlatformType): ChatService => ({
+        type,
+        capabilities: {
+          supportsStreaming: true,
+          supportsMarkdownTables: type === "rpc",
+        },
+        start: async () => undefined,
+        stop: async () => undefined,
+        onUserMessage: () => undefined,
+        sendMessage: async (content, isPartial, options) => {
+          deliveries.push({ service: type, content, isPartial, options });
+        },
+        sendStats: async () => undefined,
+      });
 
-    const gateway = new Gateway({
-      home: "/tmp/test-home",
-      agent,
-      services: [createService("rpc"), createService("telegram")],
-    });
+      const gateway = new Gateway({
+        home,
+        channelRegistry: createTestChannelRegistry(agent, {
+          home,
+          mainChannelId: "telegram:1001",
+        }),
+        services: [createService("rpc"), createService("telegram")],
+      });
 
-    await gateway.broadcastMessage("attention");
+      await gateway.broadcastMessage("attention");
 
-    expect(deliveries).toEqual([
-      {
-        service: "rpc",
-        content: "attention",
-        isPartial: false,
-        options: {
-          reason: "proactive",
-          target: {
-            platform: "telegram",
-            channelId: "1001",
+      expect(deliveries).toEqual([
+        {
+          service: "rpc",
+          content: "attention",
+          isPartial: false,
+          options: {
+            reason: "proactive",
+            target: {
+              platform: "telegram",
+              channelId: "1001",
+            },
           },
         },
-      },
-      {
-        service: "telegram",
-        content: "attention",
-        isPartial: false,
-        options: {
-          reason: "proactive",
-          target: {
-            platform: "telegram",
-            channelId: "1001",
+        {
+          service: "telegram",
+          content: "attention",
+          isPartial: false,
+          options: {
+            reason: "proactive",
+            target: {
+              platform: "telegram",
+              channelId: "1001",
+            },
           },
         },
-      },
-    ]);
+      ]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("uses provided target when send request includes target", async () => {
-    const agent = new EchoMockAgent();
-    agent.updateLastChannel({
-      type: "telegram",
-      channelId: "1001",
-    });
-    const deliveries: MessageRecord[] = [];
-    const service: ChatService = {
-      type: "telegram",
-      capabilities: {
-        supportsStreaming: true,
-        supportsMarkdownTables: false,
-      },
-      start: async () => undefined,
-      stop: async () => undefined,
-      onUserMessage: () => undefined,
-      sendMessage: async (content, isPartial, options) => {
-        deliveries.push({ content, isPartial, options });
-      },
-      sendStats: async () => undefined,
-    };
+    const home = mkdtempSync(join(tmpdir(), "xeno-gw-"));
+    try {
+      const agent = new EchoMockAgent();
+      const deliveries: MessageRecord[] = [];
+      const service: ChatService = {
+        type: "telegram",
+        capabilities: {
+          supportsStreaming: true,
+          supportsMarkdownTables: false,
+        },
+        start: async () => undefined,
+        stop: async () => undefined,
+        onUserMessage: () => undefined,
+        sendMessage: async (content, isPartial, options) => {
+          deliveries.push({ content, isPartial, options });
+        },
+        sendStats: async () => undefined,
+      };
 
-    const gateway = new Gateway({
-      home: "/tmp/test-home",
-      agent,
-      services: [service],
-    });
+      const gateway = new Gateway({
+        home,
+        channelRegistry: createTestChannelRegistry(agent, {
+          home,
+          mainChannelId: "telegram:1001",
+        }),
+        services: [service],
+      });
 
-    const outcome = await gateway.sendMessage({
-      content: "attention",
-      target: {
-        platform: "telegram",
-        channelId: "2002",
-      },
-    });
-
-    expect(outcome).toEqual({
-      delivered: true,
-      target: {
-        platform: "telegram",
-        channelId: "2002",
-      },
-    });
-    expect(deliveries).toEqual([
-      {
+      const outcome = await gateway.sendMessage({
         content: "attention",
-        isPartial: false,
-        options: {
-          reason: "proactive",
-          target: {
-            platform: "telegram",
-            channelId: "2002",
+        target: {
+          platform: "telegram",
+          channelId: "2002",
+        },
+      });
+
+      expect(outcome).toEqual({
+        delivered: true,
+        target: {
+          platform: "telegram",
+          channelId: "2002",
+        },
+      });
+      expect(deliveries).toEqual([
+        {
+          content: "attention",
+          isPartial: false,
+          options: {
+            reason: "proactive",
+            target: {
+              platform: "telegram",
+              channelId: "2002",
+            },
           },
         },
-      },
-    ]);
+      ]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("reports not delivered for sends when no channel is available", async () => {
-    const agent = new EchoMockAgent();
-    const gateway = new Gateway({
-      home: "/tmp/test-home",
-      agent,
-      services: [],
-    });
+    const home = mkdtempSync(join(tmpdir(), "xeno-gw-"));
+    try {
+      const agent = new EchoMockAgent();
+      const gateway = new Gateway({
+        home,
+        channelRegistry: createTestChannelRegistry(agent, { home }),
+        services: [],
+      });
 
-    const outcome = await gateway.sendMessage({
-      content: "attention",
-    });
+      const outcome = await gateway.sendMessage({
+        content: "attention",
+      });
 
-    expect(outcome).toEqual({
-      delivered: false,
-      reason: "No last channel is known yet.",
-    });
+      expect(outcome).toEqual({
+        delivered: false,
+        reason: "No last channel is known yet.",
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });

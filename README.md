@@ -102,6 +102,26 @@ The agent home directory contains the following files (scaffolded from templates
 
 When re-running initialization, `CLAUDE.md` and files under `.claude/skills/` are refreshed from templates. Other existing files are preserved.
 
+## Topic channels
+
+When the bot receives messages from Telegram group chats (or any non-main channel), xeno creates an isolated **topic channel** with its own agent session, memory, and cron scheduler. Topic channels are stored under `<home>/channels/<sanitized-key>/`.
+
+Each topic channel gets:
+
+- Its own `CLAUDE.md` (generated), `USER.md`, `memory/` directory
+- `.claude/settings.local.json` (defaults to `sonnet` model)
+- `.claude/skills/run-cron-task/SKILL.md`
+- An independent cron engine with `xeno-cron` MCP (persistent tasks in `<channelDir>/cron-tasks.json`)
+- Path restriction hooks that prevent access to the parent home's private files (`MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `memory/`) and sibling channel directories
+
+System tasks (heartbeat, weekly-new-session) remain main-session-only.
+
+### Telegram group chat behavior
+
+- Non-mentioned messages in group chats are queued to a per-channel message queue
+- When the bot is @mentioned, queued messages are flushed as context and included in the prompt
+- Replies are routed back to the originating chat
+
 ## Development
 
 ### Install dependencies
@@ -155,11 +175,13 @@ You can also set `telegram_bot_token` in `~/.config/xeno/config.json`.
 - Cron task `notify` modes are `auto` and `never`
 - Cron task model selection is not user-configurable; runs use the internal default model
 - Cron engine result callbacks are currently not auto-broadcast to chat channels
-- Persistent cron tasks are stored at `<home>/cron-tasks.json`
+- Main session persistent cron tasks are stored at `<home>/cron-tasks.json`
+- Topic channel cron tasks are stored at `<channelDir>/cron-tasks.json` and execute on the channel's own session
 - Built-in heartbeat task:
   - Reads `HEARTBEAT.md`
   - Runs every 30 minutes by default
   - Is runtime-only (not persisted in `cron-tasks.json`)
+  - Main-session-only (topic channels do not get heartbeat or weekly-new-session tasks)
   - Can be triggered manually from console with `/hb` or via JSON-RPC `gateway.heartbeat`
 
 ## Config file

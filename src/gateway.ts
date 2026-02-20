@@ -1,5 +1,8 @@
-import type { AgentRuntime, CronContext } from "./agent";
+import type { CronContext } from "./agent";
 import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { ChannelRegistry } from "./channel/registry";
+import type { ChannelSession } from "./channel/session";
+import type { QueuedMessage } from "./channel/message-queue";
 import { formatMessage } from "./chat/formatter";
 import { ChatServiceRegistry } from "./chat/registry";
 import { extractText, formatStats } from "./chat/stream";
@@ -24,7 +27,7 @@ const TELEGRAM_STOP_FOLLOW_UP_PROMPT =
 
 export interface GatewayConfig {
   home: string;
-  agent: AgentRuntime;
+  channelRegistry: ChannelRegistry;
   services: ChatService[];
   mcpServers?: Record<string, McpServerConfig>;
   rpcMcpServers?: Record<string, McpServerConfig>;
@@ -37,6 +40,7 @@ export interface GatewayCronQueryRequest {
   isolatedContext?: boolean;
   abortSignal?: AbortSignal;
   mcpServers?: Record<string, McpServerConfig>;
+  session?: ChannelSession;
 }
 
 export interface GatewayCronQueryResult {
@@ -59,16 +63,14 @@ export interface SendMessageResult {
 
 export class Gateway {
   private readonly registry = new ChatServiceRegistry();
-  private readonly agent: AgentRuntime;
+  private readonly channelRegistry: ChannelRegistry;
   private readonly mcpServers: Record<string, McpServerConfig> | undefined;
   private readonly rpcMcpServers: Record<string, McpServerConfig> | undefined;
 
-  private activeQuery = false;
   private shuttingDown = false;
-  private readonly pendingUserQueries: PendingUserQuery[] = [];
 
   constructor(config: GatewayConfig) {
-    this.agent = config.agent;
+    this.channelRegistry = config.channelRegistry;
     this.mcpServers = config.mcpServers;
     this.rpcMcpServers = config.rpcMcpServers;
 
@@ -83,8 +85,8 @@ export class Gateway {
         await this.handleUserMessage(service, message);
       });
 
-      service.onAbortRequest?.(() => {
-        this.abortActiveQuery();
+      service.onAbortRequest?.((context) => {
+        this.abortActiveQuery(service.type, context?.channelId);
       });
     }
 
@@ -101,7 +103,7 @@ export class Gateway {
     }
     this.shuttingDown = true;
 
-    this.agent.abort();
+    await this.channelRegistry.shutdown();
     await this.registry.stopAll();
     logger.info("Gateway stopped");
   }
@@ -123,7 +125,8 @@ export class Gateway {
       throw new Error("Cron query aborted.");
     }
 
-    await this.acquireActiveQuery({
+    const session = request.session ?? this.channelRegistry.getMainSession();
+    await session.acquireActiveQuery({
       abortSignal: request.abortSignal,
       abortErrorMessage: "Cron query aborted.",
     });
@@ -136,14 +139,17 @@ export class Gateway {
       model: request.model,
       isolatedContext: request.isolatedContext,
     };
-    const cronMcpServers = mergeMcpServers(this.mcpServers, request.mcpServers);
+    const cronMcpServers = mergeMcpServers(
+      mergeMcpServers(this.mcpServers, session.mcpServers),
+      request.mcpServers,
+    );
     const onAbort = () => {
-      this.agent.abort();
+      session.agent.abort();
     };
     request.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      for await (const message of this.agent.query(request.prompt, {
+      for await (const message of session.agent.query(request.prompt, {
         includePartialMessages: true,
         mcpServers: cronMcpServers,
         cronContext,
@@ -169,7 +175,7 @@ export class Gateway {
       }
     } finally {
       request.abortSignal?.removeEventListener("abort", onAbort);
-      this.activeQuery = false;
+      session.releaseActiveQuery();
     }
 
     return {
@@ -179,11 +185,11 @@ export class Gateway {
   }
 
   getSessionId(): string | null {
-    return this.agent.getSessionId();
+    return this.channelRegistry.getMainSession().agent.getSessionId();
   }
 
   getConversationHistory() {
-    return this.agent.getConversationHistory();
+    return this.channelRegistry.getMainSession().agent.getConversationHistory();
   }
 
   async broadcastMessage(content: string): Promise<void> {
@@ -242,11 +248,18 @@ export class Gateway {
     return this.handleUserMessage(service, inbound);
   }
 
-  private abortActiveQuery(): void {
-    if (!this.activeQuery) {
+  private abortActiveQuery(platform?: string, channelId?: string): void {
+    let session: ChannelSession | undefined;
+    if (platform && channelId) {
+      session = this.channelRegistry.findSession(platform, channelId);
+    }
+    if (!session) {
+      session = this.channelRegistry.getMainSession();
+    }
+    if (!session.activeQuery) {
       return;
     }
-    this.agent.abort();
+    session.abort();
   }
 
   private async handleUserMessage(
@@ -257,27 +270,63 @@ export class Gateway {
       return;
     }
 
-    this.agent.updateLastChannel(inbound.context);
+    const chatType = inbound.context.metadata?.chatType as string | undefined;
+    const chatTitle = inbound.context.metadata?.chatTitle as string | undefined;
+    const session = await this.channelRegistry.resolve(
+      inbound.context.type,
+      inbound.context.channelId,
+      chatType,
+      chatTitle,
+    );
+    const isMainSession = session === this.channelRegistry.getMainSession();
+    const isGroupChat = chatType === "group" || chatType === "supergroup";
+    const isMentioned = inbound.context.metadata?.mentioned === true;
 
+    // Group chat message queue: queue non-mentioned messages
+    if (isGroupChat && !isMentioned) {
+      if (session.messageQueue) {
+        await session.messageQueue.append({
+          timestamp: new Date().toISOString(),
+          userId: inbound.context.userId,
+          userName:
+            (inbound.context.metadata?.firstName as string) ||
+            (inbound.context.metadata?.username as string) ||
+            undefined,
+          content: inbound.content,
+        });
+        logger.debug(
+          { channelKey: session.channelKey, content: inbound.content.slice(0, 80) },
+          "Queued group chat message",
+        );
+      }
+      return;
+    }
+
+    // Build response target so the reply goes to the right chat
+    const responseTarget: OutboundMessageTarget | undefined = inbound.context.channelId
+      ? { platform: inbound.context.type, channelId: inbound.context.channelId }
+      : undefined;
     const responseOptions: OutboundMessageOptions = {
       reason: "response",
+      target: responseTarget,
     };
+
     const command = parseSlashCommand(inbound.content);
     const isCompactCommand = command === "/compact";
     const isTelegramStopCommand = command === "/stop" && inbound.context.type === "telegram";
     const waitAbortController = new AbortController();
-    const pendingQueueEntry: PendingUserQuery = {
+    const pendingQueueEntry = {
       inbound,
       abortController: waitAbortController,
     };
     let drainedPendingQueries: ChatInboundMessage[] = [];
 
     if (isTelegramStopCommand) {
-      this.abortActiveQuery();
-      drainedPendingQueries = this.dequeuePendingUserQueries();
+      session.abort();
+      drainedPendingQueries = session.dequeuePendingUserQueries();
     }
 
-    if (this.activeQuery && !isTelegramStopCommand) {
+    if (session.activeQuery && !isTelegramStopCommand) {
       try {
         await service.sendMessage(
           "Busy with another task right now. I queued your message and will reply when it finishes.",
@@ -290,18 +339,18 @@ export class Gateway {
     }
 
     try {
-      await this.acquireActiveQuery({
+      await session.acquireActiveQuery({
         abortSignal: isTelegramStopCommand ? undefined : waitAbortController.signal,
         abortErrorMessage: USER_QUERY_DEQUEUED_ERROR,
         onWaitStart: isTelegramStopCommand
           ? undefined
           : () => {
-              this.pendingUserQueries.push(pendingQueueEntry);
+              session.pendingUserQueries.push(pendingQueueEntry);
             },
         onWaitEnd: isTelegramStopCommand
           ? undefined
           : () => {
-              this.removePendingUserQuery(waitAbortController);
+              session.removePendingUserQuery(waitAbortController);
             },
       });
     } catch (error) {
@@ -310,21 +359,33 @@ export class Gateway {
       }
       throw error;
     }
+
+    // Flush queued group chat messages as context when mentioned
+    let queuedContext = "";
+    if (isGroupChat && isMentioned && session.messageQueue) {
+      const queued = await session.messageQueue.flush();
+      if (queued.length > 0) {
+        queuedContext = formatQueuedGroupMessages(queued);
+      }
+    }
+
     let streamed = "";
     let finalAssistant = "";
     let failedResponse: string | null = null;
     let aborted = false;
     const collectedAttachments: Attachment[] = [];
-    const prompt = isCompactCommand
+    const basePrompt = isCompactCommand
       ? "/compact"
       : isTelegramStopCommand
         ? buildTelegramStopFollowUpPrompt(drainedPendingQueries)
         : inbound.content;
+    const prompt = queuedContext ? `${queuedContext}\n\n${basePrompt}` : basePrompt;
     const platformContext = isCompactCommand || isTelegramStopCommand ? undefined : inbound.context;
+    const sessionMcpServers = mergeMcpServers(this.mcpServers, session.mcpServers);
     const queryMcpServers =
       inbound.context.type === "rpc"
-        ? mergeMcpServers(this.mcpServers, this.rpcMcpServers)
-        : mergeMcpServers(this.mcpServers, {
+        ? mergeMcpServers(sessionMcpServers, this.rpcMcpServers)
+        : mergeMcpServers(sessionMcpServers, {
             "xeno-reply-attachment": createReplyAttachmentMcpServer({
               sendAttachment: async (attachment) => {
                 const supportedMediaTypes = service.capabilities.supportedMediaTypes;
@@ -341,13 +402,13 @@ export class Gateway {
             }),
           });
     try {
-      await service.startTyping?.();
+      await service.startTyping?.({ target: responseTarget });
     } catch (error) {
       logger.warn({ error, service: service.type }, "Failed to start typing indicator");
     }
 
     try {
-      for await (const message of this.agent.query(prompt, {
+      for await (const message of session.agent.query(prompt, {
         includePartialMessages: false,
         platformContext,
         mcpServers: queryMcpServers,
@@ -423,20 +484,12 @@ export class Gateway {
       } catch (error) {
         logger.warn({ error, service: service.type }, "Failed to stop typing indicator");
       }
-      this.activeQuery = false;
+      session.releaseActiveQuery();
     }
   }
 
   private resolveLastChannelTarget(): OutboundMessageTarget | null {
-    const lastChannel = this.agent.getLastChannel();
-    if (!lastChannel) {
-      return null;
-    }
-
-    return {
-      platform: lastChannel.platform,
-      channelId: lastChannel.channelId,
-    };
+    return this.channelRegistry.getMainChannelTarget();
   }
 
   private resolveTarget(targetOverride: OutboundMessageTarget | undefined): {
@@ -469,87 +522,12 @@ export class Gateway {
 
     return { target };
   }
-
-  private dequeuePendingUserQueries(): ChatInboundMessage[] {
-    if (this.pendingUserQueries.length === 0) {
-      return [];
-    }
-
-    const drained = this.pendingUserQueries.map((entry) => entry.inbound);
-    const pending = [...this.pendingUserQueries];
-    this.pendingUserQueries.length = 0;
-    for (const entry of pending) {
-      entry.abortController.abort();
-    }
-
-    return drained;
-  }
-
-  private removePendingUserQuery(abortController: AbortController): void {
-    const index = this.pendingUserQueries.findIndex(
-      (entry) => entry.abortController === abortController,
-    );
-    if (index < 0) {
-      return;
-    }
-    this.pendingUserQueries.splice(index, 1);
-  }
-
-  private async acquireActiveQuery(options?: {
-    abortSignal?: AbortSignal;
-    abortErrorMessage?: string;
-    onWaitStart?: () => void;
-    onWaitEnd?: () => void;
-  }): Promise<void> {
-    const abortSignal = options?.abortSignal;
-    const abortErrorMessage = options?.abortErrorMessage ?? "Query aborted.";
-    let waiting = false;
-
-    while (this.activeQuery) {
-      if (!waiting) {
-        waiting = true;
-        options?.onWaitStart?.();
-      }
-      if (this.shuttingDown) {
-        if (waiting) {
-          options?.onWaitEnd?.();
-        }
-        throw new Error("Gateway is shutting down.");
-      }
-      if (abortSignal?.aborted) {
-        if (waiting) {
-          options?.onWaitEnd?.();
-        }
-        throw new Error(abortErrorMessage);
-      }
-
-      await new Promise<void>((resolve) => {
-        setTimeout(resolve, 50);
-      });
-    }
-
-    if (waiting) {
-      options?.onWaitEnd?.();
-    }
-    if (this.shuttingDown) {
-      throw new Error("Gateway is shutting down.");
-    }
-    if (abortSignal?.aborted) {
-      throw new Error(abortErrorMessage);
-    }
-
-    this.activeQuery = true;
-  }
 }
 
 type QueryService = Pick<
   ChatService,
   "type" | "capabilities" | "sendMessage" | "sendStats" | "startTyping" | "stopTyping"
 >;
-type PendingUserQuery = {
-  inbound: ChatInboundMessage;
-  abortController: AbortController;
-};
 
 function parseSlashCommand(content: string): string | null {
   const trimmed = content.trim();
@@ -607,6 +585,24 @@ function formatQueuedMessageForPrompt(message: ChatInboundMessage, index: number
   }
 
   return `${index}. [${labelParts.join(" ")}] ${content}${suffix || ""}`;
+}
+
+function formatQueuedGroupMessages(messages: QueuedMessage[]): string {
+  const recent = messages.slice(-MAX_QUEUED_MESSAGES_IN_PROMPT);
+  const omitted = messages.length - recent.length;
+  const lines: string[] = [];
+
+  if (omitted > 0) {
+    lines.push(`[${omitted} earlier message(s) omitted]`);
+  }
+
+  for (const msg of recent) {
+    const name = msg.userName || msg.userId || "unknown";
+    const content = collapseWhitespace(msg.content).slice(0, MAX_QUEUED_MESSAGE_CONTENT_LENGTH);
+    lines.push(`[${msg.timestamp}] ${name}: ${content}`);
+  }
+
+  return `<developer>Recent group chat messages since last @mention:\n${lines.join("\n")}</developer>`;
 }
 
 function collapseWhitespace(value: string): string {

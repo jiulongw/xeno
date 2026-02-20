@@ -34,7 +34,7 @@ export interface ChatInboundMessage {
 }
 
 export type UserMessageHandler = (message: ChatInboundMessage) => Promise<void> | void;
-export type AbortRequestHandler = () => void;
+export type AbortRequestHandler = (context?: { channelId?: string }) => void;
 
 export interface ChatService {
   readonly type: PlatformType;
@@ -42,7 +42,7 @@ export interface ChatService {
 
   start(): Promise<void>;
   stop(): Promise<void>;
-  startTyping?(): Promise<void>;
+  startTyping?(options?: { target?: OutboundMessageTarget }): Promise<void>;
   stopTyping?(): Promise<void>;
 
   onUserMessage(handler: UserMessageHandler): void;

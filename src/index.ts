@@ -1,6 +1,10 @@
 #!/usr/bin/env bun
 
 import { Agent } from "./agent";
+import { ChannelMessageQueue } from "./channel/message-queue";
+import { ChannelRegistry } from "./channel/registry";
+import { ChannelSession } from "./channel/session";
+import { MAIN_CHANNEL_KEY } from "./channel/types";
 import { TelegramPlatform } from "./chat/platforms/telegram";
 import type { ChatService } from "./chat/service";
 import { parseArgs } from "./cli";
@@ -13,7 +17,7 @@ import {
   type AppConfig,
 } from "./config";
 import { Gateway } from "./gateway";
-import { createHome } from "./home";
+import { createChannelHome, createHome } from "./home";
 import { GatewayRpcServer } from "./ipc/gateway-rpc";
 import { getGatewaySocketPath, isGatewaySocketActive } from "./ipc/socket";
 import { installLaunchAgent, uninstallLaunchAgent } from "./launch-agent";
@@ -56,6 +60,53 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
   }
 
   const agent = new Agent(home);
+  const mainSession = new ChannelSession(MAIN_CHANNEL_KEY, agent);
+  const channelRegistry = new ChannelRegistry({
+    home,
+    mainSession,
+    createTopicSession: async (channelKey, channelName) => {
+      const channelDir = await createChannelHome(home, channelKey, channelName);
+      const topicAgent = new Agent(channelDir, { defaultModel: "sonnet", parentHome: home });
+      const messageQueue = new ChannelMessageQueue(channelDir);
+
+      // Per-channel cron engine (no system tasks)
+      const channelCronStore = new CronStore(channelDir);
+      let channelSession: ChannelSession | null = null;
+      const channelCronEngine = new CronEngine({
+        home: channelDir,
+        store: channelCronStore,
+        queryRunner: async (request) => {
+          if (!gateway) {
+            throw new Error("Gateway is not initialized.");
+          }
+          if (!channelSession) {
+            throw new Error("Channel session is not initialized.");
+          }
+          return gateway.runCronQuery({
+            ...request,
+            session: channelSession,
+            mcpServers: {
+              "xeno-messenger": messengerMcpServer,
+            },
+          });
+        },
+        onResult: async (result) => {
+          logger.info({ channelKey, result }, "Channel cron task result");
+        },
+      });
+      const channelCronMcpServer = createCronMcpServer(channelCronEngine);
+
+      channelSession = new ChannelSession(channelKey, topicAgent, {
+        messageQueue,
+        cronEngine: channelCronEngine,
+        mcpServers: { "xeno-cron": channelCronMcpServer },
+      });
+
+      await channelCronEngine.start();
+      return channelSession;
+    },
+  });
+
   const cronStore = new CronStore(home);
   const heartbeatEnabled = config.heartbeatEnabled ?? true;
   let gateway: Gateway | null = null;
@@ -105,7 +156,7 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
 
   const gatewayInstance = new Gateway({
     home,
-    agent,
+    channelRegistry,
     services: buildServeServices(home, config),
     mcpServers: {
       "xeno-cron": cronMcpServer,

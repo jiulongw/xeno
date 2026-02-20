@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { chmod, mkdir, readdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { sanitizeChannelKey } from "./channel/types";
 
 import agentsTemplate from "../template/CLAUDE.md" with { type: "text" };
 import bootstrapTemplate from "../template/BOOTSTRAP.md" with { type: "text" };
@@ -115,6 +116,75 @@ async function cleanupLegacyHeartbeatSkill(homeDir: string): Promise<void> {
       throw error;
     }
   }
+}
+
+export async function createChannelHome(
+  parentHome: string,
+  channelKey: string,
+  channelName?: string,
+): Promise<string> {
+  const sanitized = sanitizeChannelKey(channelKey);
+  const channelDir = join(parentHome, "channels", sanitized);
+  const absoluteParent = resolve(parentHome);
+
+  await mkdir(channelDir, { recursive: true });
+  await mkdir(join(channelDir, "memory"), { recursive: true });
+  await mkdir(join(channelDir, "media", "received"), { recursive: true });
+
+  const claudeMd = generateChannelClaudeMd(absoluteParent, channelName);
+  await writeFile(join(channelDir, "CLAUDE.md"), claudeMd, "utf-8");
+
+  // Scaffold USER.md from template if it doesn't exist
+  const userMdPath = join(channelDir, "USER.md");
+  if (!existsSync(userMdPath)) {
+    await writeFile(userMdPath, userTemplate, "utf-8");
+  }
+
+  // Always refresh skills from templates (same pattern as main home)
+  const cronSkillPath = join(channelDir, ".claude", "skills", "run-cron-task", "SKILL.md");
+  await mkdir(dirname(cronSkillPath), { recursive: true });
+  await writeFile(cronSkillPath, runCronTaskSkill, "utf-8");
+
+  const settingsPath = join(channelDir, ".claude", "settings.local.json");
+  if (!existsSync(settingsPath)) {
+    await mkdir(dirname(settingsPath), { recursive: true });
+    const settings = { model: "sonnet" };
+    await writeFile(settingsPath, JSON.stringify(settings, null, 2) + "\n", "utf-8");
+  }
+
+  return channelDir;
+}
+
+function generateChannelClaudeMd(parentHome: string, channelName?: string): string {
+  const header = channelName ? `# Topic Channel: ${channelName}` : "# Topic Channel";
+  const description = channelName
+    ? `This is an isolated topic channel for: **${channelName}**. Your workspace is this directory.`
+    : "This is an isolated topic channel. Your workspace is this directory.";
+  return `${header}
+
+${description}
+
+## Every Session
+
+Before doing anything else:
+1. Read \`${parentHome}/SOUL.md\` — this is who you are
+2. Read \`${parentHome}/IDENTITY.md\` — your identity
+3. Read \`USER.md\` — who you're helping (local to this channel)
+4. Read \`memory/YYYY-MM-DD.md\` (today + yesterday) for recent context
+
+Do NOT read the parent directory's MEMORY.md, USER.md, or HEARTBEAT.md. Your files are local to this channel.
+
+## Memory
+- Daily notes: \`memory/YYYY-MM-DD.md\`
+- This channel has its own isolated memory context
+
+## Safety
+
+- Don't exfiltrate private data. Ever.
+- Don't run destructive commands without asking.
+- \`trash\` > \`rm\` (recoverable beats gone forever)
+- When in doubt, ask.
+`;
 }
 
 async function scaffoldConfig(homeDir: string): Promise<void> {

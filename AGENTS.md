@@ -23,6 +23,9 @@
   - Telegram `/compact` is forwarded as raw `/compact` and bypasses platform context wrapping
   - Telegram `/stop` aborts the active query (if any) and triggers a follow-up check-in prompt
   - Other Telegram messages include sender display context (`first_name`, fallback `username`)
+  - Group chat support: bot detects @mentions, queues non-mentioned messages, flushes queued context on mention
+  - `startTyping` accepts optional `{ target }` to send typing indicator to a specific chat
+  - Responses are routed back to the originating chat via `responseTarget`
 - `serve` also supports heartbeat config from `~/.config/xeno/config.json`:
   - `heartbeat_interval_minutes` (number, optional)
   - `heartbeat_enabled` (boolean, optional; defaults to `true`)
@@ -43,12 +46,45 @@
   - Uses `/heartbeat now:<iso_timestamp>` prompt prefix at runtime
   - Runtime-only (not persisted to cron store)
   - Triggered on schedule, from console `/hb`, or over RPC `gateway.heartbeat`
+- Per-channel cron:
+  - Each topic channel gets its own `CronEngine` and `CronStore` (no system tasks)
+  - Channel cron tasks persist in `<channelDir>/cron-tasks.json`
+  - Channel cron runs execute on the channel's session (sharing its query lock)
+  - Each channel receives its own `xeno-cron` MCP server via `ChannelSession.mcpServers`
+  - `Gateway.runCronQuery` accepts optional `session` field to target a specific channel session
+  - MCP servers are merged: gateway base → session → request-specific
 - MCP integration:
-  - `serve` registers MCP server `xeno-cron` on the gateway (`src/mcp/cron.ts`)
+  - `serve` registers MCP server `xeno-cron` on the gateway for the main session (`src/mcp/cron.ts`)
+  - Topic channels receive their own `xeno-cron` MCP server instance
   - Tools: `create_cron_task`, `list_cron_tasks`, `update_cron_task`, `delete_cron_task`
   - Cron runs receive MCP server `xeno-messenger` (`src/mcp/messenger.ts`) with tool `send_message`
 - IPC:
   - `src/ipc/gateway-rpc.ts` supports `gateway.heartbeat` request/response (`ok`, `message`, optional `result`, optional `durationMs`)
+
+## Channel system
+
+- Channel registry: `src/channel/registry.ts`
+  - Routes messages to main or topic sessions based on platform and channel ID
+  - First private chat auto-claims as main channel (persisted in `<home>/.xeno/channels.json`)
+  - RPC always routes to main session
+  - `shutdown()` is async: awaits all topic session shutdowns in parallel, then main session
+- Channel session: `src/channel/session.ts`
+  - Constructor takes `(channelKey, agent, options?)` where options is `{ messageQueue?, cronEngine?, mcpServers? }`
+  - Owns query lock (`acquireActiveQuery`/`releaseActiveQuery`), pending user query queue, and abort
+  - `shutdown()` is async: stops cron engine after setting shutdown flag
+- Channel message queue: `src/channel/message-queue.ts`
+  - JSONL-based queue at `<channelDir>/message-queue.jsonl` for group chat messages
+  - `append()` adds messages; `flush()` reads all and truncates the file
+- Channel types: `src/channel/types.ts`
+  - `MAIN_CHANNEL_KEY = "__main__"`, `buildChannelKey(platform, channelId)`, `sanitizeChannelKey(key)`
+- Topic channel agent options:
+  - `Agent` constructor accepts `AgentOptions { defaultModel?, parentHome? }`
+  - Topic agents use `defaultModel: "sonnet"` and `parentHome` for path restriction hooks
+  - Path restriction hooks (`PreToolUse`) block access to parent home's `MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `memory/`, and sibling channel directories
+- Channel home scaffolding: `src/home.ts` → `createChannelHome()`
+  - Creates `<home>/channels/<sanitized-key>/` with `CLAUDE.md`, `USER.md`, `memory/`, `media/received/`, `.claude/settings.local.json`, `.claude/skills/run-cron-task/SKILL.md`
+  - `CLAUDE.md` is always regenerated; `USER.md` is preserved if it exists
+  - Skills are always refreshed from templates
 
 ## Home initialization
 

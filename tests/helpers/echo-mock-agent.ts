@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRuntime, ConversationTurn, LastChannel, QueryOptions } from "../../src/agent";
-import type { PlatformContext } from "../../src/chat/service";
+import type { AgentRuntime, ConversationTurn, QueryOptions } from "../../src/agent";
 
 export interface EchoMockAgentOptions {
   sessionId?: string | null;
@@ -21,7 +20,6 @@ export class EchoMockAgent implements AgentRuntime {
   private readonly failWith: string | Error | undefined;
   private readonly emitStreamText: boolean;
   private activeAbortController: AbortController | null = null;
-  private lastChannel: LastChannel | null = null;
 
   abortCount = 0;
 
@@ -35,21 +33,6 @@ export class EchoMockAgent implements AgentRuntime {
 
   getSessionId(): string | null {
     return this.sessionId;
-  }
-
-  getLastChannel(): LastChannel | null {
-    return this.lastChannel;
-  }
-
-  updateLastChannel(context: PlatformContext): void {
-    const channelId = context.channelId?.trim();
-    if (!channelId) {
-      return;
-    }
-    this.lastChannel = {
-      platform: context.type,
-      channelId,
-    };
   }
 
   async getConversationHistory(): Promise<ConversationTurn[]> {
