@@ -30,7 +30,7 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 {
   "default_home": "~/xeno-home",
   "telegram_bot_token": "YOUR_BOT_TOKEN",
-  "telegram_allowed_users": ["YOUR_USER_ID"],
+  "telegram_allowed_users": { "YOUR_USER_ID": ["*"] },
   "heartbeat_interval_minutes": 30,
   "heartbeat_enabled": true
 }
@@ -38,7 +38,7 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 
 - `default_home` — path to the agent home directory (set automatically by `init`).
 - `telegram_bot_token` — token for the Telegram bot that xeno uses as its chat interface.
-- `telegram_allowed_users` — array of Telegram user ID strings allowed to interact with the bot. Only listed users can send messages; all others are rejected.
+- `telegram_allowed_users` — controls which Telegram users can interact with the bot and in which chats. Accepts an object mapping user IDs to allowed chat IDs (or `"*"` for all chats), or a legacy array of user IDs. See [User whitelist](#user-whitelist) for details.
 - `heartbeat_interval_minutes` — interval in minutes between heartbeat runs (default: `30`).
 - `heartbeat_enabled` — set to `false` to disable the built-in heartbeat task (default: `true`).
 
@@ -48,6 +48,34 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 2. Send `/newbot` and follow the prompts to choose a name and username.
 3. BotFather will reply with an API token (e.g., `123456:ABC-DEF...`). Copy this value into your config file.
 4. To get your Telegram user ID, send a message to your bot. If the service is not installed yet, run `xeno serve` manually so the gateway can receive Telegram messages. If your ID is not listed in `telegram_allowed_users`, the bot replies with your user ID so you can add it to the config.
+
+#### User whitelist
+
+`telegram_allowed_users` controls which Telegram users can interact with the bot. It supports two formats:
+
+**Object format** (recommended) — map each user ID to a list of allowed chat IDs, or `"*"` for all chats:
+
+```json
+{
+  "telegram_allowed_users": {
+    "123456789": ["*"],
+    "987654321": ["-1001234567890", "-1009876543210"]
+  }
+}
+```
+
+- `"*"` grants access to all chats (private and group).
+- A list of chat IDs restricts the user to only those specific group chats. Private chats with the bot are always allowed for listed users regardless of the chat ID list.
+
+**Legacy array format** — grants all listed users access to all chats (equivalent to `"*"`):
+
+```json
+{
+  "telegram_allowed_users": ["123456789", "987654321"]
+}
+```
+
+User IDs can be strings or integers. When `telegram_allowed_users` is omitted or empty, all messages are rejected. If an unauthorized user sends a message, the bot replies with their user ID so it can be added to the config.
 
 ### 4. Install the LaunchAgent
 
@@ -195,15 +223,20 @@ Example:
 {
   "default_home": "/tmp/xeno",
   "telegram_bot_token": "123456:abcdef",
+  "telegram_allowed_users": {
+    "123456789": ["*"],
+    "987654321": ["-1001234567890"]
+  },
   "heartbeat_interval_minutes": 30,
   "heartbeat_enabled": true
 }
 ```
 
-Heartbeat config keys are optional:
+Optional config keys:
 
 - `heartbeat_interval_minutes` (number): interval for built-in heartbeat task
 - `heartbeat_enabled` (boolean): enable/disable built-in heartbeat task (default `true`)
+- `telegram_allowed_users` (object or array): controls which Telegram users can interact with the bot and in which chats. See [User whitelist](#user-whitelist) below.
 
 ## Claude executable override
 
