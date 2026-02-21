@@ -49,6 +49,11 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 3. BotFather will reply with an API token (e.g., `123456:ABC-DEF...`). Copy this value into your config file.
 4. To get your Telegram user ID, send a message to your bot. If the service is not installed yet, run `xeno serve` manually so the gateway can receive Telegram messages. If your ID is not listed in `telegram_allowed_users`, the bot replies with your user ID so you can add it to the config.
 
+#### Telegram bot settings recommendations
+
+- Keep threaded mode off. xeno currently handles all Telegram threads in the same session.
+- In group chats, disable topics. xeno currently handles all group topics in the same session.
+
 #### User whitelist
 
 `telegram_allowed_users` controls which Telegram users can interact with the bot. It supports two formats:
