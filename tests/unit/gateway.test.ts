@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 import type {
   ChatInboundMessage,
   ChatService,
@@ -534,7 +533,7 @@ describe("Gateway", () => {
 
   test("passes configured MCP servers to rpc queries", async () => {
     const agent = new EchoMockAgent();
-    const mcpServers: Record<string, McpServerConfig> = {
+    const mcpServers: Record<string, unknown> = {
       "xeno-cron": {
         type: "stdio",
         command: "echo",
@@ -581,7 +580,7 @@ describe("Gateway", () => {
 
   test("adds rpc-specific MCP servers only for rpc user queries", async () => {
     const agent = new EchoMockAgent();
-    const rpcOnlyMcpServers: Record<string, McpServerConfig> = {
+    const rpcOnlyMcpServers: Record<string, unknown> = {
       "xeno-messenger": {
         type: "stdio",
         command: "echo",
@@ -616,14 +615,14 @@ describe("Gateway", () => {
 
   test("merges cron query MCP servers with gateway MCP servers", async () => {
     const agent = new EchoMockAgent();
-    const baseMcpServers: Record<string, McpServerConfig> = {
+    const baseMcpServers: Record<string, unknown> = {
       "xeno-cron": {
         type: "stdio",
         command: "echo",
         args: ["cron"],
       },
     };
-    const cronOnlyMcpServers: Record<string, McpServerConfig> = {
+    const cronOnlyMcpServers: Record<string, unknown> = {
       "xeno-messenger": {
         type: "stdio",
         command: "echo",

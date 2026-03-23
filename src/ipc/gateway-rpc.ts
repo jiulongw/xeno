@@ -7,8 +7,18 @@ import { randomUUID } from "node:crypto";
 import { logger } from "../logger";
 import type { Gateway } from "../gateway";
 import type { ConversationTurn } from "../agent";
-import type { ChatInboundMessage, PlatformCapabilities, PlatformContext } from "../chat/service";
+import type {
+  ChatInboundMessage,
+  OutboundMessageTarget,
+  PlatformCapabilities,
+  PlatformContext,
+  PlatformType,
+} from "../chat/service";
 import type { Attachment, AttachmentType } from "../media";
+import type { ChannelRegistry } from "../channel/registry";
+import type { CronEngine } from "../cron/engine";
+import type { CronTask, CronTaskUpdateInput } from "../cron/types";
+import { MAIN_CHANNEL_KEY } from "../channel/types";
 import { JsonRpcPeer } from "./json-rpc";
 import { getGatewaySocketPath, isSocketPathActive } from "./socket";
 
@@ -66,6 +76,8 @@ export interface GatewayRpcServerOptions {
   gateway: Gateway;
   runHeartbeat?: () => Promise<GatewayTaskTriggerResponse>;
   runNewSession?: () => Promise<GatewayTaskTriggerResponse>;
+  channelRegistry?: ChannelRegistry;
+  mainCronEngine?: CronEngine;
 }
 
 export interface GatewayRpcClientOptions {
@@ -77,6 +89,8 @@ export class GatewayRpcServer {
   private readonly gateway: Gateway;
   private readonly runHeartbeat: (() => Promise<GatewayTaskTriggerResponse>) | null;
   private readonly runNewSession: (() => Promise<GatewayTaskTriggerResponse>) | null;
+  private readonly channelRegistry: ChannelRegistry | null;
+  private readonly mainCronEngine: CronEngine | null;
   private readonly socketPath: string;
   private readonly rpcLogger;
 
@@ -88,6 +102,8 @@ export class GatewayRpcServer {
     this.gateway = options.gateway;
     this.runHeartbeat = options.runHeartbeat ?? null;
     this.runNewSession = options.runNewSession ?? null;
+    this.channelRegistry = options.channelRegistry ?? null;
+    this.mainCronEngine = options.mainCronEngine ?? null;
     this.socketPath = getGatewaySocketPath(options.home);
     this.rpcLogger = logger.child({ component: "gateway-rpc", home: this.home });
   }
@@ -194,6 +210,116 @@ export class GatewayRpcServer {
         }
 
         return this.runNewSession();
+      }
+
+      // --- MCP bridge RPC methods ---
+
+      if (method === "gateway.mcp.cron.create") {
+        const p = requireObject(params);
+        const engine = this.resolveCronEngine(p.channelKey as string);
+        const schedule = parseMcpSchedule(p);
+        if (!schedule) {
+          throw new Error(
+            "Missing schedule. Provide interval_minutes, run_at, or cron_expression.",
+          );
+        }
+        const task = await engine.createTask({
+          name: requireString(p.name, "name"),
+          prompt: requireString(p.prompt, "prompt"),
+          schedule,
+          notify: p.notify as "auto" | "never" | undefined,
+          isolatedContext: p.isolated_context as boolean | undefined,
+          maxTurns: p.max_turns as number | undefined,
+          enabled: p.enabled as boolean | undefined,
+        });
+        return mcpSuccessResult(`Created cron task ${task.id}.`, { task: toTaskSummary(task) });
+      }
+
+      if (method === "gateway.mcp.cron.list") {
+        const p = requireObject(params);
+        const engine = this.resolveCronEngine(p.channelKey as string);
+        const tasks = engine.listTasks().map(toTaskSummary);
+        return mcpSuccessResult(`Found ${tasks.length} cron task(s).`, { tasks });
+      }
+
+      if (method === "gateway.mcp.cron.update") {
+        const p = requireObject(params);
+        const engine = this.resolveCronEngine(p.channelKey as string);
+        const id = requireString(p.id, "id");
+        const updates: CronTaskUpdateInput = {};
+        if (p.name !== undefined) updates.name = p.name as string;
+        if (p.prompt !== undefined) updates.prompt = p.prompt as string;
+        if (p.notify !== undefined) updates.notify = p.notify as "auto" | "never";
+        if (p.isolated_context !== undefined)
+          updates.isolatedContext = p.isolated_context as boolean;
+        if (p.max_turns !== undefined) updates.maxTurns = p.max_turns as number | null;
+        if (p.enabled !== undefined) updates.enabled = p.enabled as boolean;
+        const schedule = parseMcpSchedule(p, { allowOmitted: true });
+        if (schedule) updates.schedule = schedule;
+        const task = await engine.updateTask(id, updates);
+        if (!task) {
+          return mcpSuccessResult(`Cron task ${id} was not found.`, { updated: false });
+        }
+        return mcpSuccessResult(`Updated cron task ${id}.`, {
+          updated: true,
+          task: toTaskSummary(task),
+        });
+      }
+
+      if (method === "gateway.mcp.cron.delete") {
+        const p = requireObject(params);
+        const engine = this.resolveCronEngine(p.channelKey as string);
+        const id = requireString(p.id, "id");
+        const removed = await engine.deleteTask(id);
+        if (!removed) {
+          return mcpSuccessResult(`Cron task ${id} was not found.`, { removed: false });
+        }
+        return mcpSuccessResult(`Deleted cron task ${id}.`, { removed: true });
+      }
+
+      if (method === "gateway.mcp.send_message") {
+        const p = requireObject(params);
+        const target = p.target as { platform: string; channel_id: string } | undefined;
+        const attachments = p.attachments as
+          | {
+              type: string;
+              path: string;
+              mime_type?: string;
+              file_name?: string;
+              caption?: string;
+            }[]
+          | undefined;
+
+        const outcome = await this.gateway.sendMessage({
+          content: requireString(p.content, "content"),
+          target: target
+            ? { platform: target.platform as PlatformType, channelId: target.channel_id }
+            : undefined,
+          attachments: attachments?.map((a) => ({
+            type: a.type as Attachment["type"],
+            path: a.path,
+            mimeType: a.mime_type,
+            fileName: a.file_name,
+            caption: a.caption,
+          })),
+        });
+
+        if (!outcome.delivered) {
+          return mcpSuccessResult(`Message was not sent: ${outcome.reason ?? "unknown reason"}.`, {
+            delivered: false,
+            reason: outcome.reason ?? null,
+          });
+        }
+
+        return mcpSuccessResult(
+          `Message sent to ${outcome.target?.platform}:${outcome.target?.channelId}.`,
+          {
+            delivered: true,
+            target: outcome.target
+              ? { platform: outcome.target.platform, channel_id: outcome.target.channelId }
+              : null,
+          },
+        );
       }
 
       throw new Error(`Method not found: ${method}`);
@@ -344,6 +470,27 @@ export class GatewayRpcServer {
     }
 
     return {};
+  }
+
+  private resolveCronEngine(channelKey: unknown): CronEngine {
+    const key = typeof channelKey === "string" && channelKey ? channelKey : MAIN_CHANNEL_KEY;
+    if (key === MAIN_CHANNEL_KEY) {
+      if (!this.mainCronEngine) {
+        throw new Error("Cron engine is not available.");
+      }
+      return this.mainCronEngine;
+    }
+    if (!this.channelRegistry) {
+      throw new Error("Channel registry is not available.");
+    }
+    const session = this.channelRegistry.getSessionByKey(key);
+    if (!session) {
+      throw new Error(`Channel session not found: ${key}`);
+    }
+    if (!session.cronEngine) {
+      throw new Error(`Cron engine not available for channel: ${key}`);
+    }
+    return session.cronEngine;
   }
 
   private async ensureSocketIsAvailable(): Promise<void> {
@@ -725,6 +872,89 @@ function parseAttachments(value: unknown, source: "query" | "stream"): Attachmen
       size: typeof record.size === "number" ? record.size : undefined,
     } satisfies Attachment;
   });
+}
+
+function requireObject(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Invalid params: expected object.");
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireString(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`Invalid ${field}: expected non-empty string.`);
+  }
+  return value;
+}
+
+function parseMcpSchedule(
+  p: Record<string, unknown>,
+  options?: { allowOmitted?: boolean },
+): CronTask["schedule"] | null {
+  const intervalMinutes = p.interval_minutes as number | undefined;
+  const runAtRaw = p.run_at as string | undefined;
+  const cronExpressionRaw = p.cron_expression as string | undefined;
+
+  const hasInterval = intervalMinutes !== undefined;
+  const hasRunAt = runAtRaw !== undefined;
+  const hasCronExpression = cronExpressionRaw !== undefined;
+
+  const selectedCount = Number(hasInterval) + Number(hasRunAt) + Number(hasCronExpression);
+  if (selectedCount > 1) {
+    throw new Error("Provide only one schedule: interval_minutes, run_at, or cron_expression.");
+  }
+  if (!hasInterval && !hasRunAt && !hasCronExpression) {
+    if (options?.allowOmitted) {
+      return null;
+    }
+    throw new Error("Missing schedule. Provide interval_minutes, run_at, or cron_expression.");
+  }
+
+  if (hasInterval) {
+    return { type: "interval", intervalMs: Math.round(intervalMinutes! * 60_000) };
+  }
+
+  if (hasCronExpression) {
+    const cronExpression = cronExpressionRaw!.trim();
+    if (!cronExpression) {
+      throw new Error("cron_expression must be a non-empty string.");
+    }
+    return { type: "cron_expression", cronExpression };
+  }
+
+  const runAt = new Date(runAtRaw!);
+  if (!Number.isFinite(runAt.getTime())) {
+    throw new Error("run_at must be a valid datetime string.");
+  }
+  return { type: "once", runAt: runAt.toISOString() };
+}
+
+function toTaskSummary(task: CronTask) {
+  return {
+    id: task.id,
+    name: task.name,
+    enabled: task.enabled,
+    notify: task.notify,
+    isolated_context: task.isolatedContext,
+    maxTurns: task.maxTurns ?? 10,
+    schedule:
+      task.schedule.type === "interval"
+        ? { type: "interval", interval_minutes: task.schedule.intervalMs / 60_000 }
+        : task.schedule.type === "once"
+          ? { type: "once", run_at: task.schedule.runAt }
+          : { type: "cron_expression", cron_expression: task.schedule.cronExpression },
+    createdAt: task.createdAt,
+    lastRunAt: task.lastRunAt ?? null,
+    lastResult: task.lastResult ?? null,
+  };
+}
+
+function mcpSuccessResult(text: string, structuredContent?: Record<string, unknown>) {
+  return {
+    content: [{ type: "text" as const, text }],
+    structuredContent,
+  };
 }
 
 async function connectSocket(socketPath: string): Promise<Socket> {

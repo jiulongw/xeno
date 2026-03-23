@@ -1,7 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import type { SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRuntime, ConversationTurn, QueryOptions } from "../../src/agent";
+import type {
+  AgentEvent,
+  AgentRuntime,
+  ConversationTurn,
+  QueryOptions,
+} from "../../src/provider/types";
 
 export interface EchoMockAgentOptions {
   sessionId?: string | null;
@@ -39,7 +42,7 @@ export class EchoMockAgent implements AgentRuntime {
     return this.history;
   }
 
-  async *query(userPrompt: string, options?: QueryOptions): AsyncGenerator<SDKMessage> {
+  async *query(userPrompt: string, options?: QueryOptions): AsyncGenerator<AgentEvent> {
     this.calls.push({ prompt: userPrompt, options });
     const abortController = new AbortController();
     this.activeAbortController = abortController;
@@ -55,44 +58,22 @@ export class EchoMockAgent implements AgentRuntime {
 
       if (this.emitStreamText) {
         yield {
-          type: "stream_event",
-          event: {
-            type: "content_block_start",
-            index: 0,
-            content_block: {
-              type: "text",
-              text: userPrompt,
-            },
-          },
-          parent_tool_use_id: null,
-          uuid: randomUUID(),
-          session_id: this.sessionId ?? "echo-session",
-        } as SDKMessage;
+          type: "stream",
+          text: userPrompt,
+        };
       }
 
-      const result: SDKResultMessage = {
+      yield {
         type: "result",
         subtype: "success",
-        duration_ms: 1,
-        duration_api_ms: 1,
-        is_error: false,
-        num_turns: 1,
-        result: userPrompt,
-        stop_reason: "end_turn",
-        total_cost_usd: 0,
-        usage: {
-          input_tokens: 1,
-          output_tokens: 1,
-          cache_creation_input_tokens: 0,
-          cache_read_input_tokens: 0,
-        },
+        sessionId: this.sessionId ?? "echo-session",
+        turns: 1,
+        stopReason: "end_turn",
+        durationMs: 1,
+        apiDurationMs: 1,
+        costUsd: 0,
         modelUsage: {},
-        permission_denials: [],
-        uuid: randomUUID(),
-        session_id: this.sessionId ?? "echo-session",
       };
-
-      yield result;
     } catch (error) {
       if (isAbortError(error)) {
         throw new Error("aborted");

@@ -1,6 +1,5 @@
 #!/usr/bin/env bun
 
-import { Agent } from "./agent";
 import { ChannelMessageQueue } from "./channel/message-queue";
 import { ChannelRegistry } from "./channel/registry";
 import { ChannelSession } from "./channel/session";
@@ -13,9 +12,12 @@ import {
   getConfigPath,
   loadUserConfig,
   resolveHome,
+  resolveProvider,
   resolveTelegramBotToken,
   type AppConfig,
 } from "./config";
+import { createAgent } from "./provider/factory";
+import type { AgentOptions, ProviderType } from "./provider/types";
 import { Gateway } from "./gateway";
 import { createChannelHome, createHome } from "./home";
 import { GatewayRpcServer } from "./ipc/gateway-rpc";
@@ -59,14 +61,32 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
     throw new Error(`Gateway service is already running for home ${home} (socket: ${socketPath}).`);
   }
 
-  const agent = new Agent(home);
+  const provider: ProviderType = resolveProvider(config);
+  logger.info({ provider }, "Using provider");
+
+  const scriptPath = process.argv[1] ?? "xeno";
+  const mcpBridge =
+    provider === "codex"
+      ? { command: process.execPath, args: [scriptPath, "mcp-bridge", "--home", home] }
+      : undefined;
+
+  const mainAgentOptions: AgentOptions = {
+    channelKey: MAIN_CHANNEL_KEY,
+    mcpBridge,
+  };
+  const agent = createAgent(home, provider, mainAgentOptions);
   const mainSession = new ChannelSession(MAIN_CHANNEL_KEY, agent);
   const channelRegistry = new ChannelRegistry({
     home,
     mainSession,
     createTopicSession: async (channelKey, channelName) => {
       const channelDir = await createChannelHome(home, channelKey, channelName);
-      const topicAgent = new Agent(channelDir, { defaultModel: "sonnet", parentHome: home });
+      const topicAgent = createAgent(channelDir, provider, {
+        defaultModel: "sonnet",
+        parentHome: home,
+        channelKey,
+        mcpBridge,
+      });
       const messageQueue = new ChannelMessageQueue(channelDir);
 
       // Per-channel cron engine (no system tasks)
@@ -139,7 +159,7 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
           prompt: "Session is about to end. Save your memory now.",
         });
 
-        agent.clearMainSessionId();
+        agent.clearMainSessionId?.();
       }
       return gateway.runCronQuery({
         ...request,
@@ -169,6 +189,8 @@ async function runServe(home: string, config: AppConfig): Promise<void> {
   const rpcServer = new GatewayRpcServer({
     home,
     gateway: gatewayInstance,
+    channelRegistry,
+    mainCronEngine: cronEngine,
     runHeartbeat: async () => {
       const outcome = await cronEngine.runTaskNow(HEARTBEAT_TASK_ID);
       if (!outcome) {
@@ -298,6 +320,12 @@ async function main(): Promise<void> {
 
     if (command === "uninstall") {
       await runUninstall();
+      return;
+    }
+
+    if (command === "mcp-bridge") {
+      const { runMcpBridge } = await import("./mcp/bridge");
+      await runMcpBridge(process.argv.slice(2));
       return;
     }
 

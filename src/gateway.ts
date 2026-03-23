@@ -1,5 +1,4 @@
-import type { CronContext } from "./agent";
-import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { CronContext } from "./provider/types";
 import type { ChannelRegistry } from "./channel/registry";
 import type { ChannelSession } from "./channel/session";
 import type { QueuedMessage } from "./channel/message-queue";
@@ -29,8 +28,8 @@ export interface GatewayConfig {
   home: string;
   channelRegistry: ChannelRegistry;
   services: ChatService[];
-  mcpServers?: Record<string, McpServerConfig>;
-  rpcMcpServers?: Record<string, McpServerConfig>;
+  mcpServers?: Record<string, unknown>;
+  rpcMcpServers?: Record<string, unknown>;
 }
 
 export interface GatewayCronQueryRequest {
@@ -39,7 +38,7 @@ export interface GatewayCronQueryRequest {
   model?: string;
   isolatedContext?: boolean;
   abortSignal?: AbortSignal;
-  mcpServers?: Record<string, McpServerConfig>;
+  mcpServers?: Record<string, unknown>;
   session?: ChannelSession;
 }
 
@@ -64,8 +63,8 @@ export interface SendMessageResult {
 export class Gateway {
   private readonly registry = new ChatServiceRegistry();
   private readonly channelRegistry: ChannelRegistry;
-  private readonly mcpServers: Record<string, McpServerConfig> | undefined;
-  private readonly rpcMcpServers: Record<string, McpServerConfig> | undefined;
+  private readonly mcpServers: Record<string, unknown> | undefined;
+  private readonly rpcMcpServers: Record<string, unknown> | undefined;
 
   private shuttingDown = false;
 
@@ -149,7 +148,7 @@ export class Gateway {
     request.abortSignal?.addEventListener("abort", onAbort, { once: true });
 
     try {
-      for await (const message of session.agent.query(request.prompt, {
+      for await (const event of session.agent.query(request.prompt, {
         includePartialMessages: true,
         mcpServers: cronMcpServers,
         cronContext,
@@ -158,19 +157,13 @@ export class Gateway {
           break;
         }
 
-        if (message.type === "stream_event") {
-          const delta = extractText(message);
-          if (delta) {
-            streamed += delta;
-          }
+        if (event.type === "stream") {
+          streamed += event.text;
           continue;
         }
 
-        if (message.type === "assistant") {
-          const text = extractText(message);
-          if (text) {
-            fallbackFinal = text;
-          }
+        if (event.type === "assistant") {
+          fallbackFinal = event.text;
         }
       }
     } finally {
@@ -278,7 +271,6 @@ export class Gateway {
       chatType,
       chatTitle,
     );
-    const isMainSession = session === this.channelRegistry.getMainSession();
     const isGroupChat = chatType === "group" || chatType === "supergroup";
     const isMentioned = inbound.context.metadata?.mentioned === true;
 
@@ -408,7 +400,7 @@ export class Gateway {
     }
 
     try {
-      for await (const message of session.agent.query(prompt, {
+      for await (const event of session.agent.query(prompt, {
         includePartialMessages: false,
         platformContext,
         mcpServers: queryMcpServers,
@@ -418,26 +410,18 @@ export class Gateway {
           break;
         }
 
-        if (message.type === "stream_event") {
-          const delta = extractText(message);
-          if (!delta) {
-            continue;
-          }
-
-          streamed += delta;
+        if (event.type === "stream") {
+          streamed += event.text;
           continue;
         }
 
-        if (message.type === "assistant") {
-          const text = extractText(message);
-          if (text) {
-            finalAssistant = text;
-          }
+        if (event.type === "assistant") {
+          finalAssistant = event.text;
           continue;
         }
 
-        if (message.type === "result") {
-          await service.sendStats(formatStats(message));
+        if (event.type === "result") {
+          await service.sendStats(formatStats(event));
         }
       }
     } catch (error) {
@@ -614,9 +598,9 @@ function collapseWhitespace(value: string): string {
 }
 
 function mergeMcpServers(
-  base: Record<string, McpServerConfig> | undefined,
-  extra: Record<string, McpServerConfig> | undefined,
-): Record<string, McpServerConfig> | undefined {
+  base: Record<string, unknown> | undefined,
+  extra: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
   if (!base && !extra) {
     return undefined;
   }

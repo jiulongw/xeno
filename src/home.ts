@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { sanitizeChannelKey } from "./channel/types";
 
-import agentsTemplate from "../template/CLAUDE.md" with { type: "text" };
+import agentsTemplate from "../template/AGENTS.md" with { type: "text" };
+import claudeRedirectTemplate from "../template/CLAUDE.md" with { type: "text" };
 import bootstrapTemplate from "../template/BOOTSTRAP.md" with { type: "text" };
 import heartbeatTemplate from "../template/HEARTBEAT.md" with { type: "text" };
 import identityTemplate from "../template/IDENTITY.md" with { type: "text" };
@@ -29,6 +30,7 @@ type TemplateFile = {
   mode?: number;
 };
 
+const AGENTS_FILE = "AGENTS.md";
 const CLAUDE_FILE = "CLAUDE.md";
 const BOOTSTRAP_FILE = "BOOTSTRAP.md";
 const SKILLS_PREFIX = ".claude/skills/";
@@ -36,7 +38,8 @@ const LEGACY_HEARTBEAT_SKILL_DIR = ".claude/skills/heartbeat";
 const LEGACY_HEARTBEAT_SKILL_FILE = `${LEGACY_HEARTBEAT_SKILL_DIR}/SKILL.md`;
 
 const TEMPLATE_FILES: TemplateFile[] = [
-  { relativePath: CLAUDE_FILE, content: agentsTemplate },
+  { relativePath: AGENTS_FILE, content: agentsTemplate },
+  { relativePath: CLAUDE_FILE, content: claudeRedirectTemplate },
   { relativePath: BOOTSTRAP_FILE, content: bootstrapTemplate },
   { relativePath: "HEARTBEAT.md", content: heartbeatTemplate },
   { relativePath: "IDENTITY.md", content: identityTemplate },
@@ -69,7 +72,11 @@ const TEMPLATE_FILES: TemplateFile[] = [
 ];
 
 function shouldOverwriteTemplate(relativePath: string): boolean {
-  return relativePath === CLAUDE_FILE || relativePath.startsWith(SKILLS_PREFIX);
+  return (
+    relativePath === AGENTS_FILE ||
+    relativePath === CLAUDE_FILE ||
+    relativePath.startsWith(SKILLS_PREFIX)
+  );
 }
 
 export async function createHome(homeDir: string): Promise<void> {
@@ -77,10 +84,10 @@ export async function createHome(homeDir: string): Promise<void> {
   await mkdir(join(homeDir, "memory"), { recursive: true });
   await mkdir(join(homeDir, "media", "received"), { recursive: true });
   await cleanupLegacyHeartbeatSkill(homeDir);
-  const claudeAlreadyExists = existsSync(join(homeDir, CLAUDE_FILE));
+  const agentsAlreadyExists = existsSync(join(homeDir, AGENTS_FILE));
 
   for (const template of TEMPLATE_FILES) {
-    if (template.relativePath === BOOTSTRAP_FILE && claudeAlreadyExists) {
+    if (template.relativePath === BOOTSTRAP_FILE && agentsAlreadyExists) {
       continue;
     }
 
@@ -131,8 +138,9 @@ export async function createChannelHome(
   await mkdir(join(channelDir, "memory"), { recursive: true });
   await mkdir(join(channelDir, "media", "received"), { recursive: true });
 
-  const claudeMd = generateChannelClaudeMd(absoluteParent, channelName);
-  await writeFile(join(channelDir, "CLAUDE.md"), claudeMd, "utf-8");
+  const agentsMd = generateChannelAgentsMd(absoluteParent, channelName);
+  await writeFile(join(channelDir, AGENTS_FILE), agentsMd, "utf-8");
+  await writeFile(join(channelDir, CLAUDE_FILE), claudeRedirectTemplate, "utf-8");
 
   // Scaffold USER.md from template if it doesn't exist
   const userMdPath = join(channelDir, "USER.md");
@@ -155,7 +163,7 @@ export async function createChannelHome(
   return channelDir;
 }
 
-function generateChannelClaudeMd(parentHome: string, channelName?: string): string {
+function generateChannelAgentsMd(parentHome: string, channelName?: string): string {
   const header = channelName ? `# Topic Channel: ${channelName}` : "# Topic Channel";
   const description = channelName
     ? `This is an isolated topic channel for: **${channelName}**. Your workspace is this directory.`

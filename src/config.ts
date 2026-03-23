@@ -7,6 +7,7 @@ export type TelegramAllowedUsers = Record<string, string[]>;
 
 export interface AppConfig {
   defaultHome?: string;
+  provider?: "claude" | "codex";
   telegramBotToken?: string;
   telegramAllowedUsers?: TelegramAllowedUsers;
   heartbeatIntervalMinutes?: number;
@@ -44,6 +45,10 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
 
   const record = parsed as Record<string, unknown>;
   const defaultHome = readOptionalString(record, "default_home", configPath);
+  const provider = readOptionalString(record, "provider", configPath);
+  if (provider !== undefined && provider !== "claude" && provider !== "codex") {
+    throw new Error(`Expected "provider" in ${configPath} to be "claude" or "codex".`);
+  }
   const telegramBotToken = readOptionalString(record, "telegram_bot_token", configPath);
   const telegramAllowedUsers = readTelegramAllowedUsers(
     record,
@@ -59,6 +64,7 @@ export async function loadConfigFromPath(configPath: string): Promise<AppConfig>
 
   return {
     defaultHome: defaultHome?.trim() || undefined,
+    provider: provider as "claude" | "codex" | undefined,
     telegramBotToken: telegramBotToken?.trim() || undefined,
     telegramAllowedUsers,
     heartbeatIntervalMinutes,
@@ -82,6 +88,17 @@ export function resolveHome(
   }
 
   return resolve(cwd, expandHomeShortcut(home));
+}
+
+export function resolveProvider(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): "claude" | "codex" {
+  const envProvider = env.XENO_PROVIDER?.trim().toLowerCase();
+  if (envProvider === "claude" || envProvider === "codex") {
+    return envProvider;
+  }
+  return config.provider ?? "claude";
 }
 
 export function resolveTelegramBotToken(

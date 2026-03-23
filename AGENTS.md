@@ -15,7 +15,12 @@
   - `init <path>`: creates and initializes an agent home directory at the given path; always refreshes `CLAUDE.md` and files under `.claude/skills/` from templates while preserving other existing files
   - `install`: macOS-only command that writes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist` and loads it via `launchctl` to run `xeno serve` (entrypoint resolved from the running program path at install time); stdout/stderr are written to timestamped files under `~/.xeno/logs`; plist `EnvironmentVariables.PATH` includes Bun runtime directory
   - `uninstall`: macOS-only command that unloads and removes `~/Library/LaunchAgents/cc.novacore.xeno.gateway.plist`
+  - `mcp-bridge`: stdio MCP bridge (internal, spawned by Codex provider); accepts `--channel-key <string>`
 - `--home <string>` is optional. If omitted, `default_home` from `~/.config/xeno/config.json` is used. The resolved home path is normalized to an absolute path.
+- Provider selection (`src/config.ts` → `resolveProvider`):
+  - `XENO_PROVIDER` environment variable (highest precedence; accepts `claude` or `codex`, case-insensitive)
+  - `provider` field in `~/.config/xeno/config.json` (default: `"claude"`)
+  - When provider is `codex`, `serve` configures a `xeno` MCP bridge (stdio) so the Codex agent can use `xeno-cron` and `xeno-messenger` tools via `xeno mcp-bridge`
 - `serve` enables Telegram chat service automatically when a token is configured:
   - `TELEGRAM_BOT_TOKEN` environment variable (highest precedence)
   - `telegram_bot_token` in `~/.config/xeno/config.json`
@@ -58,6 +63,11 @@
   - Topic channels receive their own `xeno-cron` MCP server instance
   - Tools: `create_cron_task`, `list_cron_tasks`, `update_cron_task`, `delete_cron_task`
   - Cron runs receive MCP server `xeno-messenger` (`src/mcp/messenger.ts`) with tool `send_message`
+- MCP bridge for Codex provider (`src/mcp/bridge.ts`):
+  - Stdio MCP server spawned as `xeno mcp-bridge --home <home> --channel-key <key>`
+  - Translates tool calls to JSON-RPC on gateway socket (`gateway.mcp.cron.*`, `gateway.mcp.send_message`)
+  - Configured as `xeno` MCP server in `CodexAgent` constructor when `mcpBridge` option is provided
+  - `xeno-reply-attachment` is not bridged (requires per-request closure state)
 - IPC:
   - `src/ipc/gateway-rpc.ts` supports `gateway.heartbeat` request/response (`ok`, `message`, optional `result`, optional `durationMs`)
 
@@ -78,8 +88,9 @@
 - Channel types: `src/channel/types.ts`
   - `MAIN_CHANNEL_KEY = "__main__"`, `buildChannelKey(platform, channelId)`, `sanitizeChannelKey(key)`
 - Topic channel agent options:
-  - `Agent` constructor accepts `AgentOptions { defaultModel?, parentHome? }`
+  - `Agent` constructor accepts `AgentOptions { defaultModel?, parentHome?, channelKey?, mcpBridge? }`
   - Topic agents use `defaultModel: "sonnet"` and `parentHome` for path restriction hooks
+  - `channelKey` and `mcpBridge` are passed through for Codex MCP bridge routing
   - Path restriction hooks (`PreToolUse`) block access to parent home's `MEMORY.md`, `USER.md`, `HEARTBEAT.md`, `memory/`, and sibling channel directories
 - Channel home scaffolding: `src/home.ts` → `createChannelHome()`
   - Creates `<home>/channels/<sanitized-key>/` with `CLAUDE.md`, `USER.md`, `memory/`, `media/received/`, `.claude/settings.local.json`, `.claude/skills/run-cron-task/SKILL.md`
@@ -113,11 +124,10 @@
 - Log level: `LOG_LEVEL` env var (default `info`)
 - Telegram inbound logging includes command detection, message/attachment type metadata, and short text/caption previews
 
-## Claude executable path
+## Executable paths
 
-- Optional env var: `PATH_TO_CLAUDE_CODE_EXECUTABLE`
-- When set, `src/agent.ts` passes this value to `pathToClaudeCodeExecutable`.
-- No `bun.which("claude")` lookup is used.
+- Claude: optional env var `PATH_TO_CLAUDE_CODE_EXECUTABLE` — when set, `src/agent.ts` passes this value to `pathToClaudeCodeExecutable`; no `bun.which("claude")` lookup is used
+- Codex: optional env var `PATH_TO_CODEX_EXECUTABLE` — when set, passed to `codexPathOverride` in the Codex SDK constructor
 
 ## Build output
 

@@ -30,6 +30,7 @@ describe("createHome", () => {
     await createHome(home);
 
     const expectedFiles = [
+      "AGENTS.md",
       "CLAUDE.md",
       "BOOTSTRAP.md",
       "HEARTBEAT.md",
@@ -76,29 +77,32 @@ describe("createHome", () => {
     expect(content).toBe(sentinel);
   });
 
-  test("does not create BOOTSTRAP.md when CLAUDE.md already exists", async () => {
+  test("does not create BOOTSTRAP.md when AGENTS.md already exists", async () => {
     const home = await makeTempHome();
-    await Bun.write(join(home, "CLAUDE.md"), "existing claude");
+    await Bun.write(join(home, "AGENTS.md"), "existing agents");
 
     await createHome(home);
 
     expect(await Bun.file(join(home, "BOOTSTRAP.md")).exists()).toBe(false);
   });
 
-  test("always overwrites CLAUDE.md and skill files only", async () => {
+  test("always overwrites AGENTS.md, CLAUDE.md, and skill files only", async () => {
     const home = await makeTempHome();
+    const agentsPath = join(home, "AGENTS.md");
     const claudePath = join(home, "CLAUDE.md");
     const runCronTaskSkillPath = join(home, ".claude/skills/run-cron-task/SKILL.md");
     const toolsPath = join(home, "TOOLS.md");
 
     await createHome(home);
 
+    await Bun.write(agentsPath, "custom agents");
     await Bun.write(claudePath, "custom claude");
     await Bun.write(runCronTaskSkillPath, "custom run cron task skill");
     await Bun.write(toolsPath, "custom tools");
 
     await createHome(home);
 
+    expect(await readFile(agentsPath, "utf-8")).not.toBe("custom agents");
     expect(await readFile(claudePath, "utf-8")).not.toBe("custom claude");
     expect(await readFile(runCronTaskSkillPath, "utf-8")).not.toBe("custom run cron task skill");
     expect(await readFile(toolsPath, "utf-8")).toBe("custom tools");

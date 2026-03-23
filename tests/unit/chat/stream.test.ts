@@ -1,61 +1,53 @@
 import { describe, expect, test } from "bun:test";
-import type { SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentEvent, AgentResultEvent } from "../../../src/provider/types";
 import { extractText, formatStats } from "../../../src/chat/stream";
 
 describe("extractText", () => {
-  test("extracts concatenated assistant text blocks", () => {
-    const message = {
+  test("extracts assistant text", () => {
+    const event: AgentEvent = {
       type: "assistant",
-      message: {
-        content: [
-          { type: "text", text: "hello " },
-          { type: "tool_use", name: "Edit" },
-          { type: "text", text: "world" },
-        ],
-      },
-    } as SDKMessage;
+      text: "hello world",
+    };
 
-    expect(extractText(message)).toBe("hello world");
+    expect(extractText(event)).toBe("hello world");
   });
 
-  test("extracts stream event text from content block delta", () => {
-    const message = {
-      type: "stream_event",
-      event: {
-        type: "content_block_delta",
-        delta: {
-          type: "text_delta",
-          text: "delta",
-        },
-      },
-    } as SDKMessage;
+  test("extracts stream event text", () => {
+    const event: AgentEvent = {
+      type: "stream",
+      text: "delta",
+    };
 
-    expect(extractText(message)).toBe("delta");
+    expect(extractText(event)).toBe("delta");
+  });
+
+  test("returns empty for result events", () => {
+    const event: AgentEvent = {
+      type: "result",
+      subtype: "success",
+      sessionId: "s1",
+      turns: 1,
+      stopReason: "end_turn",
+      durationMs: 100,
+      apiDurationMs: 50,
+      costUsd: 0.01,
+    };
+
+    expect(extractText(event)).toBe("");
   });
 });
 
 describe("formatStats", () => {
   test("formats important result fields", () => {
-    const result: SDKResultMessage = {
+    const result: AgentResultEvent = {
       type: "result",
       subtype: "success",
-      duration_ms: 2_345,
-      duration_api_ms: 1_500,
-      is_error: false,
-      num_turns: 3,
-      result: "ok",
-      stop_reason: "end_turn",
-      total_cost_usd: 0.0123456,
-      usage: {
-        input_tokens: 1,
-        output_tokens: 2,
-        cache_creation_input_tokens: 0,
-        cache_read_input_tokens: 0,
-      },
-      modelUsage: {},
-      permission_denials: [],
-      uuid: "123e4567-e89b-12d3-a456-426614174000",
-      session_id: "session-1",
+      sessionId: "session-1",
+      turns: 3,
+      stopReason: "end_turn",
+      durationMs: 2_345,
+      apiDurationMs: 1_500,
+      costUsd: 0.0123456,
     };
 
     expect(formatStats(result)).toBe(

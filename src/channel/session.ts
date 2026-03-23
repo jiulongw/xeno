@@ -1,5 +1,4 @@
-import type { McpServerConfig } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentRuntime } from "../agent";
+import type { AgentRuntime } from "../provider/types";
 import type { ChatInboundMessage } from "../chat/service";
 import type { CronEngine } from "../cron/engine";
 import type { ChannelMessageQueue } from "./message-queue";
@@ -7,7 +6,7 @@ import type { ChannelMessageQueue } from "./message-queue";
 export interface ChannelSessionOptions {
   messageQueue?: ChannelMessageQueue | null;
   cronEngine?: CronEngine | null;
-  mcpServers?: Record<string, McpServerConfig>;
+  mcpServers?: Record<string, unknown>;
 }
 
 export interface PendingUserQuery {
@@ -20,7 +19,7 @@ export class ChannelSession {
   readonly agent: AgentRuntime;
   readonly messageQueue: ChannelMessageQueue | null;
   readonly cronEngine: CronEngine | null;
-  readonly mcpServers: Record<string, McpServerConfig> | undefined;
+  readonly mcpServers: Record<string, unknown> | undefined;
 
   activeQuery = false;
   private shuttingDown = false;

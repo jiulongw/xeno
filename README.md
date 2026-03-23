@@ -29,6 +29,7 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 ```json
 {
   "default_home": "~/xeno-home",
+  "provider": "claude",
   "telegram_bot_token": "YOUR_BOT_TOKEN",
   "telegram_allowed_users": { "YOUR_USER_ID": ["*"] },
   "heartbeat_interval_minutes": 30,
@@ -37,6 +38,7 @@ The previous step created a configuration file at `~/.config/xeno/config.json` w
 ```
 
 - `default_home` — path to the agent home directory (set automatically by `init`).
+- `provider` — AI provider to use: `"claude"` (default) or `"codex"`. Can also be set via `XENO_PROVIDER` environment variable (takes precedence over config).
 - `telegram_bot_token` — token for the Telegram bot that xeno uses as its chat interface.
 - `telegram_allowed_users` — controls which Telegram users can interact with the bot and in which chats. Accepts an object mapping user IDs to allowed chat IDs (or `"*"` for all chats), or a legacy array of user IDs. See [User whitelist](#user-whitelist) for details.
 - `heartbeat_interval_minutes` — interval in minutes between heartbeat runs (default: `30`).
@@ -227,6 +229,7 @@ Example:
 ```json
 {
   "default_home": "/tmp/xeno",
+  "provider": "claude",
   "telegram_bot_token": "123456:abcdef",
   "telegram_allowed_users": {
     "123456789": ["*"],
@@ -239,14 +242,15 @@ Example:
 
 Optional config keys:
 
+- `provider` (`"claude"` | `"codex"`): AI provider (default `"claude"`). Overridden by `XENO_PROVIDER` env var.
 - `heartbeat_interval_minutes` (number): interval for built-in heartbeat task
 - `heartbeat_enabled` (boolean): enable/disable built-in heartbeat task (default `true`)
 - `telegram_allowed_users` (object or array): controls which Telegram users can interact with the bot and in which chats. See [User whitelist](#user-whitelist) below.
 
-## Claude executable override
+## Executable overrides
 
-Set `PATH_TO_CLAUDE_CODE_EXECUTABLE` to override the Claude CLI path used by the agent.
-If unset, the Claude Agent SDK default executable resolution is used.
+- `PATH_TO_CLAUDE_CODE_EXECUTABLE` — override the Claude CLI path used by the Claude provider. If unset, the Claude Agent SDK default executable resolution is used.
+- `PATH_TO_CODEX_EXECUTABLE` — override the Codex CLI path used by the Codex provider.
 
 ## Logging
 

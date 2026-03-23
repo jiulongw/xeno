@@ -100,6 +100,10 @@ export class ChannelRegistry {
     return this.sessions.get(key);
   }
 
+  getSessionByKey(channelKey: string): ChannelSession | undefined {
+    return this.sessions.get(channelKey);
+  }
+
   getMainChannelTarget(): OutboundMessageTarget | null {
     if (!this.mainChannelId) {
       return null;

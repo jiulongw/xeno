@@ -1,5 +1,6 @@
 {
   "default_home": "",
+  "provider": "claude",
   "telegram_bot_token": "",
   "telegram_allowed_users": ["YOUR_USER_ID"],
   "heartbeat_interval_minutes": 30,
