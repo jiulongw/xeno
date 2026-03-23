@@ -23,7 +23,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.50",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@openai/codex-sdk": "^0.116.0",
     "grammy": "^1.40.0",

@@ -5,7 +5,7 @@
     "": {
       "name": "xeno",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.50",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.81",
         "@modelcontextprotocol/sdk": "^1.27.1",
         "@openai/codex-sdk": "^0.116.0",
         "grammy": "^1.40.0",
@@ -22,7 +22,7 @@
     },
   },
   "packages": {
-    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.2.50", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.34.2", "@img/sharp-darwin-x64": "^0.34.2", "@img/sharp-linux-arm": "^0.34.2", "@img/sharp-linux-arm64": "^0.34.2", "@img/sharp-linux-x64": "^0.34.2", "@img/sharp-linuxmusl-arm64": "^0.34.2", "@img/sharp-linuxmusl-x64": "^0.34.2", "@img/sharp-win32-arm64": "^0.34.2", "@img/sharp-win32-x64": "^0.34.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-zVQzJbicfTmvS6uarFQYYVYiYedKE0FgXmhiGC1oSLm6OkIbuuKM7XV4fXEFxPZHcWQc7ZYv6HA2/P5HOE7b2Q=="],
+    "@anthropic-ai/claude-agent-sdk": ["@anthropic-ai/claude-agent-sdk@0.2.81", "", { "optionalDependencies": { "@img/sharp-darwin-arm64": "^0.34.2", "@img/sharp-darwin-x64": "^0.34.2", "@img/sharp-linux-arm": "^0.34.2", "@img/sharp-linux-arm64": "^0.34.2", "@img/sharp-linux-x64": "^0.34.2", "@img/sharp-linuxmusl-arm64": "^0.34.2", "@img/sharp-linuxmusl-x64": "^0.34.2", "@img/sharp-win32-arm64": "^0.34.2", "@img/sharp-win32-x64": "^0.34.2" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-CBeebgibBEN/DWOQGZN67vhuTG55RbI1hlsFSSoZ4uA/Io3lw04eHTE2ISCmdbqyJaefYTt6GKZei1nP0TQMNw=="],
 
     "@grammyjs/types": ["@grammyjs/types@3.24.0", "", {}, "sha512-qQIEs4lN5WqUdr4aT8MeU6UFpMbGYAvcvYSW1A4OO1PABGJQHz/KLON6qvpf+5RxaNDQBxiY2k2otIhg/AG7RQ=="],
 
