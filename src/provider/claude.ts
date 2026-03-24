@@ -286,7 +286,9 @@ export class ClaudeAgent implements AgentRuntime {
   }
 
   private extractAssistantText(message: SDKMessage): string {
-    const maybeContent = ((message as Record<string, unknown>).message as { content?: unknown } | undefined)?.content;
+    const maybeContent = (
+      (message as Record<string, unknown>).message as { content?: unknown } | undefined
+    )?.content;
     if (!Array.isArray(maybeContent)) {
       return "";
     }
