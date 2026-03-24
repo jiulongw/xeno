@@ -107,6 +107,26 @@ xeno install
 
 Always run `xeno install` after upgrading to restart the service with the new binary.
 
+#### Upgrading from 0.3.x to 0.4.0
+
+**Template rename: `CLAUDE.md` → `AGENTS.md`**
+
+In 0.4.0, the agent workspace instructions moved from `CLAUDE.md` to `AGENTS.md`. The `CLAUDE.md` file is now a one-line redirect (`@AGENTS.md`). Both files are auto-managed — `xeno init` and `xeno serve` will create `AGENTS.md` and overwrite `CLAUDE.md` automatically.
+
+**What you need to do:**
+
+If your agent added custom rules or notes to `CLAUDE.md` at runtime (the template encourages self-modification), those edits will be lost when `CLAUDE.md` is overwritten to a redirect. Before upgrading:
+
+1. Check your agent home's `CLAUDE.md` for any agent-added content beyond the default template
+2. Copy those customizations somewhere safe (e.g., into `TOOLS.md` or a memory file)
+3. After upgrading, move the customizations into `AGENTS.md` (which is also auto-overwritten on startup, so persistent customizations should go in `SOUL.md`, `TOOLS.md`, or similar preserved files)
+
+This applies to both the main home directory and any existing topic channel directories under `<home>/channels/`.
+
+**New config field: `provider`**
+
+The config file (`~/.config/xeno/config.json`) now supports a `provider` field (`"claude"` or `"codex"`, default `"claude"`). Existing configs without this field continue to work — Claude is used by default. No action required unless you want to use the Codex provider.
+
 ### Uninstalling
 
 To stop the service and remove the LaunchAgent:
